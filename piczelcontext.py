@@ -313,7 +313,7 @@ async def detailannounce(rec,oneserv=None) :
 
 #Checks that needed structures exist
 #piczel context handler
-async def handler(command, message, mydata) :
+async def handler(command, message) :
     #print("PZHandler:", command, message)
     if len(command) > 0 and command[0] != 'help' :
         if command[0] == 'listen' :

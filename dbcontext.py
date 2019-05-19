@@ -13,7 +13,6 @@
 
 #Core TODO list:
 #0.5
-#Rewrite handler to NOT pass mydata - the module already has a handle to it.
 #Update to discord.py 1.0+ now that it is released.
 
 #Respond to PMs, at least for the help context
@@ -28,8 +27,11 @@
 #Maybe redo options to be a ['Servers'][server]['Options'] = set, includes all options in one group.
 ##That would make it more difficult to remove conflicting options though?
 
-version = 0.4 #Current bot version
+version = 0.5 #Current bot version
 changelog = {}
+changelog["0.5"] = '''0.5 from 0.4 Changelog:
+GENERAL
+Changed internal handling of module data - no longer passed to the handler.'''
 changelog["0.4"] = '''0.4 from 0.3 Changelog:
 GENERAL
 Add piczel.tv support.
@@ -170,8 +172,7 @@ newmodcontext(picartocontext)
 async def getcontext(name,message) :
     '''Grabs the context handler associated with name and calls the registered
        function, providing the command and the data dict.'''
-    thiscontext = contexts[name]
-    await thiscontext["function"](message.content.split()[2:],message,thiscontext["Data"])
+    await thiscontext["function"](message.content.split()[2:],message)
 
 async def handler(command, message, handlerdata) :
     '''A generic handler function for a context. It should accept a string list
@@ -181,7 +182,7 @@ async def handler(command, message, handlerdata) :
     #This is also used as the default init function - essentially does nothing
     return
 
-async def helphandle(command, message, mydata) :
+async def helphandle(command, message) :
 ##    if command :
 ##        msg = 'For help with a specific context, please use "<context> help"'
 ##        await client.send_message(message.channel,msg)
@@ -226,7 +227,7 @@ async def helphandle(command, message, mydata) :
 
 newcontext("help",helphandle,{})
 
-async def debughandler(command, message, mydata) :
+async def debughandler(command, message) :
     #'safe' commands like help can go up here
     if not (message.author.id == '273076937474441218') :
         print("Not GP, do not run")

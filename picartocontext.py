@@ -338,7 +338,7 @@ async def detailannounce(rec,oneserv=None) :
         return #Only announce on that server, then stop.
 
 #Picarto context handler
-async def handler(command, message, mydata) :
+async def handler(command, message) :
     #print("PHandler:", command, message)
     if len(command) > 0 and command[0] != 'help' :
         if command[0] == 'listen' :
