@@ -1,19 +1,15 @@
 #discord bot with module based functionality.
-#Currently based on older discord.py version 0.16.12
-
-#PZwrap: ClientConnectorError(11001, 'getaddrinfo failed')
-#Unclosed client session
-#client_session: <aiohttp.client.ClientSession object at 0x00000282A572BB70>
-#Twrap: URLError(gaierror(11001, 'getaddrinfo failed'))
-#Pwrap: ClientConnectorError(11001, 'getaddrinfo failed')
-#This happens when the internet connection fails. Can't do much about that.
-#I do need to set up something to retry the connection so the bot doesn't
-#completely fail though.
-
+#Now based on discord.py version 1.1.1
 
 #Core TODO list:
 #0.5
 #Update to discord.py 1.0+ now that it is released.
+#Add removemult for removing multiple streams at once.
+#Maybe add 'with channel.typing()' around command interpreter to show a reaction
+
+#Add role management permission
+#Would add addperm command to give someone the "PicartoWatch" perm
+##also would add "PWNotify" role that can get @'d if proper option is set.
 
 #Respond to PMs, at least for the help context
 #Some kind of command to file bugs? In the help context
@@ -31,7 +27,11 @@ version = 0.5 #Current bot version
 changelog = {}
 changelog["0.5"] = '''0.5 from 0.4 Changelog:
 GENERAL
-Changed internal handling of module data - no longer passed to the handler.'''
+Updated for discord.py current version: 1.1.1.
+  This should make the bot considerably more reliable in case of internet or server outages.
+Changed internal handling of module data - no longer passed to the handler.
+Fixed list command for all modules not checking if server options exist.
+Changed data storage name to dbcontexts.bin.'''
 changelog["0.4"] = '''0.4 from 0.3 Changelog:
 GENERAL
 Add piczel.tv support.
@@ -97,6 +97,8 @@ client = discord.Client()
 #Invite link for the PicartoBot. Allows adding to a server by a server admin.
 #This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
+#URL to the github wiki for DBContext, which has a help page
+helpurl = "https://github.com/Silari/DBContext/wiki"
 
 #This holds the needed API keys. You may want to use other methods for storing these.
 import apitoken
@@ -125,11 +127,26 @@ tasks = []
 contexts = {}
 #Try to load a previously saved contexts dict
 try :
-    with open('PWcontexts.bin',mode='rb') as f:
+    with open('dbcontexts.bin',mode='rb') as f:
         contexts = pickle.load(f)
 except FileNotFoundError :
     pass
 print("Initial Contexts:",contexts)
+newcont = {}
+
+def convertcontexts() :
+    global newcont
+    newcont = copy.deepcopy(contexts)
+    for module in newcont :
+        if 'AnnounceDict' in contexts[module]['Data'] :
+            for item in contexts[module]['Data']['AnnounceDict'] :
+                newcont[module]['Data']['AnnounceDict'][item] = set([int(x) for x in contexts[module]['Data']['AnnounceDict'][item]])
+        if 'Servers' in contexts[module]['Data'] :
+            for item in contexts[module]['Data']['Servers'] :
+                newcont[module]['Data']['Servers'].pop(item)
+                newcont[module]['Data']['Servers'][int(item)] = contexts[module]['Data']['Servers'][item]
+                if 'AnnounceChannel' in newcont[module]['Data']['Servers'][int(item)] :
+                    newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'] = int(newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'])
 
 #Function to setup new context handler
 def newcontext(name,handlefunc,data) :
@@ -172,6 +189,7 @@ newmodcontext(picartocontext)
 async def getcontext(name,message) :
     '''Grabs the context handler associated with name and calls the registered
        function, providing the command and the data dict.'''
+    thiscontext = contexts[name]
     await thiscontext["function"](message.content.split()[2:],message)
 
 async def handler(command, message, handlerdata) :
@@ -185,45 +203,44 @@ async def handler(command, message, handlerdata) :
 async def helphandle(command, message) :
 ##    if command :
 ##        msg = 'For help with a specific context, please use "<context> help"'
-##        await client.send_message(message.channel,msg)
+##        await message.channel.send(msg)
 ##    else :
     if len(command) > 0 :
         if command[0] == "version" :
-            msg = "PicartoWatch bot version " + str(version)
+            msg = client.user.name + " bot version " + str(version)
             msg += ". Please use the 'help changelog' command for update details."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == "versions" :
             msg = "The following versions of PicartoWatch exist: "
             msg += ", ".join(changelog)
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == "changelog" :
             #print(len(command))
             if len(command) == 1 :
-                #print("Adding command")
                 command.append(version)
             try :
                 msg = changelog[str(command[1])]
-                await client.send_message(message.channel,msg)
+                await message.channel.send(msg)
             except (KeyError, ValueError) as e :
                 msg = "No changelog exists for version " + str(command[1])
-                await client.send_message(message.channel,msg)
+                await message.channel.send(msg)
         elif command[0] == "help" :
             msg = "PicartoWatch bot version " + str(version)
             msg += "\nThe following commands are available for 'help':"
             msg += "\nhelp, changelog, invite, version, versions"
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'invite' :
             msg = "I can be invited to join a server by an administrator of the server using the following link\n"
             msg += "Note that the link includes the permissions that I will be granted when joined.\n"
             msg += "<" + invite + ">"
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
     else :
         msg = "PicartoWatch bot version " + str(version)
         msg += "\nPlease use '<module> help' for help with specific modules"
         msg += "\nThe following modules are available for use: " + ", ".join(contexts)
         msg += "\nI listen to commands on any channel from users with the Administrator role in channel."
         msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
-        await client.send_message(message.channel,msg)
+        await message.channel.send(msg)
 
 newcontext("help",helphandle,{})
 
@@ -231,8 +248,8 @@ async def debughandler(command, message) :
     #'safe' commands like help can go up here
     if not (message.author.id == '273076937474441218') :
         print("Not GP, do not run")
-        await client.send_message(message.channel,"Sorry, this command is limited to the bot developer.")
-        #await client.send_message(message.channel,"Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
+        await message.channel.send("Sorry, this command is limited to the bot developer.")
+        #await message.channel.send("Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
         return
     if len(command) == 0 :
         return
@@ -249,7 +266,7 @@ async def debughandler(command, message) :
         myembed.set_image(url=rec['thumbnails']['web'])
         myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
         msg = rec['name'] + " has come online! Watch them at <https://picarto.tv/" + rec['name'] + ">"
-        await client.send_message(message.channel,msg,embed=myembed)
+        await message.channel.send(msg,embed=myembed)
     elif command[0] == 'eval' :
         if command[1] == 'await' :
             await eval(" ".join(command[2:]))
@@ -257,10 +274,10 @@ async def debughandler(command, message) :
             eval(" ".join(command[1:]))
     elif command[0] == 'reply' :
         msg = " ".join(command[1:])
-        await client.send_message(message.channel,msg)
+        await message.channel.send(msg)
     elif command[0] == 'replyeval' :
         msg = eval(command[1:])
-        await client.send_message(message.channel,msg)
+        await message.channel.send(msg)
     elif command[0] == 'sendall' :
         await sendall(" ".join(command[1:]))
     elif command[0] == 'updatenotice' :
@@ -296,7 +313,7 @@ async def sendall(msg) :
             channel = client.get_channel(servchan)
             #channel = client.get_channel(mydata['Servers'][server]["AnnounceChannel"])
             if channel : #We may no longer be in the server which would mean no channel
-                await client.send_message(channel,msg)
+                await message.channel.send(msg)
 
 #I don't remember what this was for.
 #I think it was a debug thing which isn't needed due to the debug context
@@ -326,35 +343,36 @@ async def on_message(message):
         return
     else :
         pass
+    #We ignore any messages from other bots. Could lead to bad things.
     if message.author.bot :
         return
-    if not message.server : #Ignore PMs for now
+    #Currently we ignore PMs. Later, this will prompt the basic help dialog.
+    if not message.guild : #Ignore PMs for now
         return
     hasrole = False
+    #Check if one of the users roles matches the bot's name
     for item in message.author.roles :
         #print(hasrole, item.name, client.user.name)
         if client.user.name == item.name :
             hasrole = True
-    if message.author.server_permissions.administrator or hasrole :
+    #The bot listens to anyone who is an admin, or has a role named after the bot
+    if message.author.guild_permissions.administrator or hasrole :
         command = message.content.split()
-##        if message.content.startswith('!PWhello') :
-##            msg = 'Hello {0.author.mention}'.format(message)
-##            await client.send_message(message.channel,msg)
-##        if message.server.me in message.mentions :
-##            print("I was mentioned")
-##        if message.content.startswith('!' + client.user.name + " ") :
         if message.content.startswith('<@' + str(client.user.id) + "> ") :
             #print("Listening for message")
-            #print(command[1])
-            if command[1] in contexts :
+            if len(command) < 2 :
+                msg = client.user.name + " bot version " + version
+                msg += "\nPlease use '@" + client.user.name + " help' for help on using the bot."
+                msg += "Online help is available at <" + helpurl + ">."
+            elif command[1] in contexts :
                 await getcontext(command[1],message)
             else :
                 msg = "Unknown command '" + command[1] + "'."
-                await client.send_message(message.channel,msg)
+                await message.channel.send(msg)
 
 #Used when joining a server. Might want something for this.        
 #@client.event
-#async def on_server_join(server) :
+#async def on_guild_join(server) :
 #    pass
 
 @client.event
@@ -363,7 +381,8 @@ async def on_ready() :
     print(client.user.name)
     print(client.user.id)
     print('------')
-    await client.change_presence(game=discord.Game(name="@" + client.user.name + " help"))
+    #We set out activity here - we can't do it in the client creation because we don't have the user name yet
+    await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
 def closebot() :
     client.loop.run_until_complete(client.logout())
@@ -387,25 +406,25 @@ async def savecontexts() :
     for cont in newcont :
         if 'function' in newcont[cont] :
             del newcont[cont]['function']
-    with open('PWcontexts.bin',mode='wb') as f:
+    with open('dbcontexts.bin',mode='wb') as f:
         pickle.dump(newcont,f,pickle.HIGHEST_PROTOCOL)
 
 async def savetask() :
     #Saves data every five minutes. Stops immediately if client is closed so it
     #won't interfere with the save on close.
-    while not client.is_closed :
-        if not client.is_closed :
+    while not client.is_closed() :
+        if not client.is_closed() :
             await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed :
+        if not client.is_closed() :
             await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed :
+        if not client.is_closed() :
             await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed :
+        if not client.is_closed() :
             await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed :
+        if not client.is_closed() :
             await asyncio.sleep(60) # task runs every 60 seconds
         #We've waited five minutes, save data
-        if not client.is_closed :
+        if not client.is_closed() :
             await savecontexts() # task runs every 60 seconds        
 
 import signal
@@ -458,5 +477,5 @@ if __name__ == "__main__" :
         for cont in contexts :
             if 'function' in contexts[cont] :
                 del contexts[cont]['function']
-        with open('PWcontexts.bin',mode='wb') as f:
+        with open('dbcontexts.bin',mode='wb') as f:
             pickle.dump(contexts,f,pickle.HIGHEST_PROTOCOL)

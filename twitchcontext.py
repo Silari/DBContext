@@ -154,15 +154,18 @@ async def updatewrapper() :
     await updateparsed() #Start our first Twitch scrape
     print("Start Twitch:",len(parsed))
     #print(mydata)
-    while not client.is_closed :
+    while not client.is_closed() :
         try :
             await asyncio.sleep(60) # task runs every 60 seconds
             await updatetwitch()
         except Exception as error :
             print("Twrap:", repr(error))
+        except asyncio.CancelledError :
+            #Task was cancelled, so just stop.
+            pass
 
 async def updatetwitch() :
-    if not client.is_closed: #Keep running until client stops
+    if not client.is_closed(): #Keep running until client stops
         oldlist = parsed
         await updateparsed()
         oldset = set(oldlist)
@@ -214,35 +217,36 @@ async def updatetwitch() :
     return
 
 async def removemsg(rec) :
-    for server in mydata['AnnounceDict'][rec['user_name']] :
-        #If the channel has the Delete option set, delete it
+    for server in mydata['AnnounceDict'][rec['name']] :
         try :
             #We should edit the message to say they're not online
             if not ("MSG" in mydata["Servers"][server]) or mydata["Servers"][server]["MSG"] == "edit" :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await client.get_message(channel,savedmsg[server][rec['user_name']])
-                newembed = discord.Embed.from_data(oldmess.embeds[0])
-                newmsg = rec['user_name'] + " is no longer online. Better luck next time!"
-                await client.edit_message(oldmess,new_content=newmsg,embed=newembed)
+                oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
+                #newembed = discord.Embed.from_data(oldmess.embeds[0])
+                #New method for discord.py 1.0+
+                newembed = oldmess.embeds[0]
+                newmsg = rec['name'] + " is no longer online. Better luck next time!"
+                await oldmess.edit(content=newmsg,embed=newembed)
             #We should delete the message
             elif mydata["Servers"][server]["MSG"] == "delete" :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await client.get_message(channel,savedmsg[server][rec['user_name']])
-                await client.delete_message(oldmess)
+                oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
+                await oldmess.delete()
         except Exception as e :
             #print("RM",repr(e))
             pass
         #Remove the msg from the list, we won't update it anymore.
         try : #They might not have a message saved, ignore that
-            del savedmsg[server][rec['user_name']]
+            del savedmsg[server][rec['name']]
         except :
             pass
 
 async def updatemsg(rec) :
-    #print("Updating",rec['user_name'])
+    #print("Updating",rec['name'])
     myembed = await makeembed(rec)
     noprev = await simpembed(rec)
-    for server in mydata['AnnounceDict'][rec['user_name']] :
+    for server in mydata['AnnounceDict'][rec['name']] :
         #If Type is simple, don't do this
         if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "simple" :
             pass
@@ -254,7 +258,7 @@ async def updatemsg(rec) :
             oldmess = None
             try :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await client.get_message(channel,savedmsg[server][rec['user_name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
             except KeyError as e:
                 #print("1",repr(e))
                 pass #Server no longer has an announce channel set, or message
@@ -267,10 +271,9 @@ async def updatemsg(rec) :
                 try :
                     channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "noprev" :
-                            await client.edit_message(oldmess,new_content=oldmess.content,embed=noprev)
+                            await oldmess.edit(content=oldmess.content,embed=noprev)
                     else :
-                        await client.edit_message(oldmess,new_content=oldmess.content,embed=myembed)
-                    #await client.send_message(channel, msg)
+                        await oldmess.edit(content=oldmess.content,embed=myembed)
                 except Exception as e:
                     #print("3",repr(e))
                     pass
@@ -285,13 +288,13 @@ async def announce(rec,oneserv=None) :
             channel = client.get_channel(mydata["Servers"][oneserv]["AnnounceChannel"])
             if "Type" in mydata["Servers"][oneserv] :
                 if mydata["Servers"][oneserv]["Type"] == "simple" :
-                    sentmsg = await client.send_message(channel,msg)
+                    sentmsg = await channel.send(msg)
                 elif mydata["Servers"][oneserv]["Type"] == "noprev" :
-                    sentmsg = await client.send_message(channel,msg,embed=noprev)
+                    sentmsg = await channel.send(msg,embed=noprev)
                 else :
-                    sentmsg = await client.send_message(channel,msg,embed=myembed)
+                    sentmsg = await channel.send(msg,embed=myembed)
             else :
-                sentmsg = await client.send_message(channel,msg,embed=myembed)
+                sentmsg = await channel.send(msg,embed=myembed)
         except KeyError :
             pass
         if sentmsg :
@@ -304,14 +307,14 @@ async def announce(rec,oneserv=None) :
             channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
             if "Type" in mydata["Servers"][server] :
                 if mydata["Servers"][server]["Type"] == "simple" :
-                    sentmsg = await client.send_message(channel,msg)
+                    sentmsg = await channel.send(msg)
                 elif mydata["Servers"][server]["Type"] == "noprev" :
-                    sentmsg = await client.send_message(channel,msg,embed=noprev)
+                    sentmsg = await channel.send(msg,embed=noprev)
                 else :
-                    sentmsg = await client.send_message(channel,msg,embed=myembed)
+                    sentmsg = await channel.send(msg,embed=myembed)
             else :
-                sentmsg = await client.send_message(channel,msg,embed=myembed)
-            #await client.send_message(channel, msg)
+                sentmsg = await channel.send(msg,embed=myembed)
+            #await channel.send(msg)
         except KeyError :
             pass #Server has no announcement channel set
         if sentmsg :
@@ -325,7 +328,7 @@ async def detailannounceoffline(name,oneserv=None) :
         try :
             msg = "Sorry, I failed to load information about that channel from twitch. Check your spelling and try again."
             channel = client.get_channel(mydata["Servers"][oneserv]["AnnounceChannel"])
-            await client.send_message(channel,msg)
+            await channel.send(msg)
         except KeyError :
             pass
         return
@@ -336,7 +339,7 @@ async def detailannounceoffline(name,oneserv=None) :
     if oneserv :
         try :
             channel = client.get_channel(mydata["Servers"][oneserv]["AnnounceChannel"])
-            await client.send_message(channel,embed=myembed)
+            await channel.send(embed=myembed)
         except KeyError :
             pass
         return #Only announce on that server, then stop.
@@ -361,7 +364,7 @@ async def detailannounce(name,oneserv=None) :
     if oneserv :
         try :
             channel = client.get_channel(mydata["Servers"][oneserv]["AnnounceChannel"])
-            await client.send_message(channel,embed=myembed)
+            await channel.send(embed=myembed)
         except KeyError :
             pass
         return #Only announce on that server, then stop.
@@ -373,121 +376,127 @@ async def handler(command, message) :
     if len(command) > 0 and command[0] != 'help' :
         if command[0] == 'listen' :
             #Set the channel the message was sent in as the Announce channel
-            if not (message.server.id in mydata["Servers"]) :
-                mydata["Servers"][message.server.id] = {} #Add data storage for server
-            mydata["Servers"][message.server.id]["AnnounceChannel"] = message.channel.id
+            if not (message.guild.id in mydata["Servers"]) :
+                mydata["Servers"][message.guild.id] = {} #Add data storage for server
+            mydata["Servers"][message.guild.id]["AnnounceChannel"] = message.channel.id
             msg = "Ok, I will now start announcing in this server, using this channel."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'stop' :
             #Stop announcing - just remove the AnnounceChannel option
             try :
-                del mydata["Servers"][message.server.id]["AnnounceChannel"]
+                del mydata["Servers"][message.guild.id]["AnnounceChannel"]
             except KeyError :
                 pass #Not listening, so skip
             msg = "Ok, I will stop announcing on this server."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'option' :
             if len(command) == 1 :
                 msg = "No option provided. Please use the help menu for info on how to use the option command."
-                await client.send_message(message.channel,msg)
+                await message.channel.send(msg)
                 return
             msg = ""
             setopt = set()
             unknown = False
             for newopt in command[1:] :
                 if newopt in ("default","noprev","simple") :
-                    if not (message.server.id in mydata["Servers"]) :
+                    if not (message.guild.id in mydata["Servers"]) :
                         #Haven't created servers info dict yet, make a dict.
-                        mydata["Servers"][message.server.id] = {}
-                    mydata["Servers"][message.server.id]["Type"] = newopt
+                        mydata["Servers"][message.guild.id] = {}
+                    mydata["Servers"][message.guild.id]["Type"] = newopt
                     setopt.add(newopt)
-                    #await client.send_message(message.channel,msg)
+                    #await message.channel.send(msg)
                 elif newopt in ("delete","edit","static") :
-                    if not (message.server.id in mydata["Servers"]) :
+                    if not (message.guild.id in mydata["Servers"]) :
                         #Haven't created servers info dict yet, make a dict.
-                        mydata["Servers"][message.server.id] = {}
-                    mydata["Servers"][message.server.id]["MSG"] = newopt
+                        mydata["Servers"][message.guild.id] = {}
+                    mydata["Servers"][message.guild.id]["MSG"] = newopt
                     setopt.add(newopt)
-                    #await client.send_message(message.channel,msg)
+                    #await message.channel.send(msg)
                 else :
                     unknown = True #msg = "Unknown option provided. Please use the help menu for info on how to use the option command."
-                    #await client.send_message(message.channel,msg)
+                    #await message.channel.send(msg)
             if setopt :
                 msg += "Options set: " + ", ".join(setopt) + ". "
             if unknown :
                 msg += "One or more unknown options found. Please check the help menu for available options."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'list' :
             #List options and current listening channels
             msg = ""
             try :
-                msg = "I am currently announcing in " + client.get_channel(mydata["Servers"][message.server.id]["AnnounceChannel"]).name + "."
+                msg = "I am currently announcing in " + client.get_channel(mydata["Servers"][message.guild.id]["AnnounceChannel"]).name + "."
             except KeyError :
                 msg = "I am not currently set to announce streams in a channel."
             try :
                 #Create list of watched channels, bolding online ones.
-                newlist = [*["**" + item + "**" for item in mydata["Servers"][message.server.id]["Listens"] if item in parsed], *[item for item in mydata["Servers"][message.server.id]["Listens"] if not item in parsed]]
+                newlist = [*["**" + item + "**" for item in mydata["Servers"][message.guild.id]["Listens"] if item in parsed], *[item for item in mydata["Servers"][message.guild.id]["Listens"] if not item in parsed]]
                 newlist.sort()
                 msg += " Announcing for (**online**) streamers: " + ", ".join(newlist)
             except :
                 msg += " No streamers are currently set to be watched."
             msg += ".\nAnnouncement type set to "
-            if not ('Type' in mydata["Servers"][message.server.id]) :
+            try :
+                if not ('Type' in mydata["Servers"][message.guild.id]) :
+                    msg += "default with "
+                else :
+                    msg += mydata["Servers"][message.guild.id]['Type'] + " with "
+            except KeyError :
                 msg += "default with "
-            else :
-                msg += mydata["Servers"][message.server.id]['Type'] + " with "
-            if not ('MSG' in mydata["Servers"][message.server.id]) :
+            try :
+                if not ('MSG' in mydata["Servers"][message.guild.id]) :
+                    msg += "edit messages."
+                else :
+                    msg += mydata["Servers"][message.guild.id]['MSG'] + " messages."
+            except KeyError :
                 msg += "edit messages."
-            else :
-                msg += mydata["Servers"][message.server.id]['MSG'] + " messages."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'add' :
-            if not (message.server.id in mydata["Servers"]) :
+            if not (message.guild.id in mydata["Servers"]) :
                 #Haven't created servers info dict yet, make a dict.
-                mydata["Servers"][message.server.id] = {}
-            if not ("Listens" in mydata["Servers"][message.server.id]) :
+                mydata["Servers"][message.guild.id] = {}
+            if not ("Listens" in mydata["Servers"][message.guild.id]) :
                 #No listens added yet, make a set
-                mydata["Servers"][message.server.id]["Listens"] = set()
-            if len(mydata["Servers"][message.server.id]["Listens"]) >= 100 :
+                mydata["Servers"][message.guild.id]["Listens"] = set()
+            if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg = "Too many listens already - limit is 100 per server."
-                    await client.send_message(message.channel,msg)
+                    await message.channel.send(msg)
                     return
             #Need to match case with the twitch name, so test it first
             if not command[1] in mydata["AnnounceDict"] :
                 newrec = await agetchannel(command[1])
                 if not newrec :
                     msg = "No twitch stream found with that user name. Please check spelling and try again."
-                    await client.send_message(message.channel,msg)
+                    await message.channel.send(msg)
                     return
                 else :
                     command[1] = newrec["display_name"]
                     #Haven't used this channel anywhere before, make a set for it
                     mydata["AnnounceDict"][command[1]] = set()
             #This marks the channel as being listened to by the server
-            mydata["AnnounceDict"][command[1]].add(message.server.id)
+            mydata["AnnounceDict"][command[1]].add(message.guild.id)
             #This marks the server as listening to the channel
-            mydata["Servers"][message.server.id]["Listens"].add(command[1])
+            mydata["Servers"][message.guild.id]["Listens"].add(command[1])
             msg = "Ok, I will now announce when " + command[1] + " comes online."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
             try :
                 #Announce the given user is online if the record exists.
                 #Only happens if another server is already watching them,
                 #but can still happen. DO NOT REMOVE.
-                await announce(parsed[command[1]],message.server.id)
+                await announce(parsed[command[1]],message.guild.id)
             except KeyError : #If they aren't online, silently fail.
                 pass
         elif command[0] == 'addmult' :
-            if not (message.server.id in mydata["Servers"]) :
+            if not (message.guild.id in mydata["Servers"]) :
                 #Haven't created servers info dict yet, make a dict.
-                mydata["Servers"][message.server.id] = {}
-            if not ("Listens" in mydata["Servers"][message.server.id]) :
+                mydata["Servers"][message.guild.id] = {}
+            if not ("Listens" in mydata["Servers"][message.guild.id]) :
                 #No listens added yet, make a set
-                mydata["Servers"][message.server.id]["Listens"] = set()
+                mydata["Servers"][message.guild.id]["Listens"] = set()
             added = set()
             msg = ""
             notfound = set()
             for newchan in command[1:] :
-                if len(mydata["Servers"][message.server.id]["Listens"]) >= 100 :
+                if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg += "Too many listens - limit is 100 per server. "
                     break
                 #Need to match case with the twitch name, so test it first
@@ -501,9 +510,9 @@ async def handler(command, message) :
                     mydata["AnnounceDict"][newchan] = set()
                 if newrec :
                     #This marks the channel as being listened to by the server
-                    mydata["AnnounceDict"][newchan].add(message.server.id)
+                    mydata["AnnounceDict"][newchan].add(message.guild.id)
                     #This marks the server as listening to the channel
-                    mydata["Servers"][message.server.id]["Listens"].add(newchan)
+                    mydata["Servers"][message.guild.id]["Listens"].add(newchan)
                     added.add(newchan)
             if newlist :
                 newlist = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
@@ -513,11 +522,11 @@ async def handler(command, message) :
                 msg += "\nThe following channels were not found and could not be added: " + ", ".join(notfound)
             if not msg :
                 msg += "Unable to add any channels due to unknown error."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'remove' :
             if command[1] in mydata["AnnounceDict"] :
                 try :
-                    mydata["AnnounceDict"][command[1]].remove(message.server.id)
+                    mydata["AnnounceDict"][command[1]].remove(message.guild.id)
                     #If no one is watching that channel anymore, remove it
                     #This saves on calls to the twitch API for watched channels
                     if not mydata["AnnounceDict"][command[1]] :
@@ -527,18 +536,18 @@ async def handler(command, message) :
                 except KeyError :
                     pass #Value not in list, don't worry about it
                 try :
-                    mydata["Servers"][message.server.id]["Listens"].remove(command[1])
+                    mydata["Servers"][message.guild.id]["Listens"].remove(command[1])
                 except ValueError :
                     pass #Value not in list, don't worry about it
                 except KeyError :
                     pass #Value not in list, don't worry about it
             msg = "Ok, I will no longer announce when " + command[1] + " comes online."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         elif command[0] == 'detail' :
             if len(command) == 1 : #No channel given
-                await client.send_message(message.channel,"You need to specify a user!")
+                await message.channel.send("You need to specify a user!")
             else :
-                await detailannounce(command[1],message.server.id)
+                await detailannounce(command[1],message.guild.id)
     #if command[0] == 'help' :
     else : #No extra command given, or unknown command
         if len(command) > 1 :
@@ -551,7 +560,7 @@ async def handler(command, message) :
                 msg += "\ndelete: Same as edit, except announcement is deleted when the channel goes offline."
                 msg += "\nedit: default option. Viewers and other fields are updated periodically. Message is changed when channel is offline."
                 msg += "\nstatic: messages are not edited or deleted ever."
-                await client.send_message(message.channel,msg)
+                await message.channel.send(msg)
                 #msg += "\n"
         else :
             msg = "The following commands are available for twitch:"
@@ -565,4 +574,4 @@ async def handler(command, message) :
             msg += "\nlist: Lists the current announcement channel and all listened streamer."
             msg += "\nSome commands/responses will not work unless an announcement channel is set."
             msg += "\nPlease note that all commands, options and channel names are case sensitive!"
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
