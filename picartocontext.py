@@ -466,6 +466,7 @@ async def handler(command, message) :
                 if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg += "Too many listens - limit is 100 per server. Did not add " + newchan
                     break
+                newrec = ""
                 #Need to match case with the picarto name, so test it first
                 if not newchan in mydata["AnnounceDict"] :
                     newrec = await agetchannel(command[1])
@@ -475,6 +476,8 @@ async def handler(command, message) :
                         newchan = newrec["name"]
                     #Haven't used this channel anywhere before, make a set for it
                     mydata["AnnounceDict"][newchan] = set()
+                else :
+                    newrec = newchan
                 if newrec :
                     #This marks the channel as being listened to by the server
                     mydata["AnnounceDict"][newchan].add(message.guild.id)

@@ -14,6 +14,8 @@ mydata = None #Is filled by discordbot with a handle to the contexts stored data
 
 import apitoken
 twitchheader = apitoken.twitchheader
+if not twitchheader :
+    raise Exception("You must provide a valid twitch header with access token for use!")
 
 savedmsg = {} #Dict with Servers
 
@@ -217,36 +219,36 @@ async def updatetwitch() :
     return
 
 async def removemsg(rec) :
-    for server in mydata['AnnounceDict'][rec['name']] :
+    for server in mydata['AnnounceDict'][rec['user_name']] :
         try :
             #We should edit the message to say they're not online
             if not ("MSG" in mydata["Servers"][server]) or mydata["Servers"][server]["MSG"] == "edit" :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['user_name']])
                 #newembed = discord.Embed.from_data(oldmess.embeds[0])
                 #New method for discord.py 1.0+
                 newembed = oldmess.embeds[0]
-                newmsg = rec['name'] + " is no longer online. Better luck next time!"
+                newmsg = rec['user_name'] + " is no longer online. Better luck next time!"
                 await oldmess.edit(content=newmsg,embed=newembed)
             #We should delete the message
             elif mydata["Servers"][server]["MSG"] == "delete" :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['user_name']])
                 await oldmess.delete()
         except Exception as e :
             #print("RM",repr(e))
             pass
         #Remove the msg from the list, we won't update it anymore.
         try : #They might not have a message saved, ignore that
-            del savedmsg[server][rec['name']]
+            del savedmsg[server][rec['user_name']]
         except :
             pass
 
 async def updatemsg(rec) :
-    #print("Updating",rec['name'])
+    #print("Updating",rec['user_name'])
     myembed = await makeembed(rec)
     noprev = await simpembed(rec)
-    for server in mydata['AnnounceDict'][rec['name']] :
+    for server in mydata['AnnounceDict'][rec['user_name']] :
         #If Type is simple, don't do this
         if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "simple" :
             pass
@@ -258,7 +260,7 @@ async def updatemsg(rec) :
             oldmess = None
             try :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['user_name']])
             except KeyError as e:
                 #print("1",repr(e))
                 pass #Server no longer has an announce channel set, or message
@@ -499,6 +501,7 @@ async def handler(command, message) :
                 if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg += "Too many listens - limit is 100 per server. "
                     break
+                newrec = ""
                 #Need to match case with the twitch name, so test it first
                 if not newchan in mydata["AnnounceDict"] :
                     newrec = await agetchannel(command[1])
@@ -508,6 +511,8 @@ async def handler(command, message) :
                         newchan = newrec["display_name"]
                     #Haven't used this channel anywhere before, make a set for it
                     mydata["AnnounceDict"][newchan] = set()
+                else :
+                    newrec = newchan
                 if newrec :
                     #This marks the channel as being listened to by the server
                     mydata["AnnounceDict"][newchan].add(message.guild.id)

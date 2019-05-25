@@ -3,7 +3,8 @@
 
 #Core TODO list:
 #0.5
-#Update to discord.py 1.0+ now that it is released.
+#addmult isn't working - piczel ln 453 - newrec used before assignment
+##Potentially fixed
 #Add removemult for removing multiple streams at once.
 #Maybe add 'with channel.typing()' around command interpreter to show a reaction
 
@@ -31,6 +32,7 @@ Updated for discord.py current version: 1.1.1.
   This should make the bot considerably more reliable in case of internet or server outages.
 Changed internal handling of module data - no longer passed to the handler.
 Fixed list command for all modules not checking if server options exist.
+Fixed addmult command for all modules failing if channel was already added.
 Changed data storage name to dbcontexts.bin.'''
 changelog["0.4"] = '''0.4 from 0.3 Changelog:
 GENERAL
@@ -104,6 +106,8 @@ helpurl = "https://github.com/Silari/DBContext/wiki"
 import apitoken
 #token is the Discord API
 token = apitoken.token
+if not token :
+    raise Exception("You must provide a valid Discord API token for use!")
 
 import pickle #Save/load contexts data
 
