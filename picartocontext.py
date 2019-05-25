@@ -127,11 +127,11 @@ async def updatewrapper() :
         try :
             await asyncio.sleep(60) # task runs every 60 seconds
             await updatepicarto()
-        except Exception as error :
-            print("Pwrap:",repr(error))
         except asyncio.CancelledError :
             #Task was cancelled, so just stop.
             pass
+        except Exception as error :
+            print("Pwrap:",repr(error))
     
 #This sets our picarto checker to be run every minute
 async def updatepicarto():
@@ -462,32 +462,35 @@ async def handler(command, message) :
             added = set()
             msg = ""
             notfound = set()
-            for newchan in command[1:11] :
+            for newchan in command[1:] :
+                #print(newchan)
                 if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg += "Too many listens - limit is 100 per server. Did not add " + newchan
                     break
                 newrec = ""
                 #Need to match case with the picarto name, so test it first
                 if not newchan in mydata["AnnounceDict"] :
-                    newrec = await agetchannel(command[1])
+                    newrec = await agetchannel(newchan)
+                    #print(newrec)
                     if not newrec :
                         notfound.add(newchan)
                     else :
                         newchan = newrec["name"]
-                    #Haven't used this channel anywhere before, make a set for it
-                    mydata["AnnounceDict"][newchan] = set()
+                        #Haven't used this channel anywhere before, make a set for it
+                        mydata["AnnounceDict"][newchan] = set()
                 else :
                     newrec = newchan
+                #Channel does not exist on service, so do not add.
                 if newrec :
                     #This marks the channel as being listened to by the server
                     mydata["AnnounceDict"][newchan].add(message.guild.id)
                     #This marks the server as listening to the channel
                     mydata["Servers"][message.guild.id]["Listens"].add(newchan)
                     added.add(newchan)
-            if newlist :
-                newlist = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
-                newlist.sort()
-                msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(newlist)
+            if added :
+                added = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
+                added.sort()
+                msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(added)
             if notfound :
                 msg += "\nThe following channels were not found and could not be added: " + ", ".join(notfound)
             if not msg :

@@ -160,11 +160,11 @@ async def updatewrapper() :
         try :
             await asyncio.sleep(60) # task runs every 60 seconds
             await updatetwitch()
-        except Exception as error :
-            print("Twrap:", repr(error))
         except asyncio.CancelledError :
             #Task was cancelled, so just stop.
             pass
+        except Exception as error :
+            print("Twrap:", repr(error))
 
 async def updatetwitch() :
     if not client.is_closed(): #Keep running until client stops
@@ -498,31 +498,34 @@ async def handler(command, message) :
             msg = ""
             notfound = set()
             for newchan in command[1:] :
+                #print(newchan)
                 if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg += "Too many listens - limit is 100 per server. "
                     break
                 newrec = ""
                 #Need to match case with the twitch name, so test it first
                 if not newchan in mydata["AnnounceDict"] :
-                    newrec = await agetchannel(command[1])
+                    newrec = await agetchannel(newchan)
+                    #print(newrec)
                     if not newrec :
                         notfound.add(newchan)
                     else :
                         newchan = newrec["display_name"]
-                    #Haven't used this channel anywhere before, make a set for it
-                    mydata["AnnounceDict"][newchan] = set()
+                        #Haven't used this channel anywhere before, make a set for it
+                        mydata["AnnounceDict"][newchan] = set()
                 else :
                     newrec = newchan
+                #Channel does not exist on service, so do not add.
                 if newrec :
                     #This marks the channel as being listened to by the server
                     mydata["AnnounceDict"][newchan].add(message.guild.id)
                     #This marks the server as listening to the channel
                     mydata["Servers"][message.guild.id]["Listens"].add(newchan)
                     added.add(newchan)
-            if newlist :
-                newlist = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
-                newlist.sort()
-                msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(newlist)
+            if added :
+                added = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
+                added.sort()
+                msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(added)
             if notfound :
                 msg += "\nThe following channels were not found and could not be added: " + ", ".join(notfound)
             if not msg :

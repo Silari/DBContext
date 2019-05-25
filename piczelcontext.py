@@ -6,7 +6,7 @@ import json
 import discord
 import asyncio
 
-parsed = {} #Dict with key == 'user_name'
+parsed = {} #Dict with key == 'username'
 defaultdata = {"AnnounceDict":{},"Servers":{}}
 name = "piczel"
 client = None #Is filled by discordbot with a handle to the discord client instance
@@ -100,11 +100,11 @@ async def updatewrapper() :
         try :
             await asyncio.sleep(60) # task runs every 60 seconds
             await updatepiczel()
-        except Exception as error :
-            print("PZwrap:", type(error), repr(error))
         except asyncio.CancelledError :
             #Task was cancelled, so just stop.
             pass
+        except Exception as error :
+            print("PZwrap:", type(error), repr(error))
 
 async def updatepiczel() :
     if not client.is_closed(): #Keep running until client stops
@@ -164,16 +164,16 @@ async def removemsg(rec) :
             #We should edit the message to say they're not online
             if not ("MSG" in mydata["Servers"][server]) or mydata["Servers"][server]["MSG"] == "edit" :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await channel.fetch_message(savedmsg[server][rec['user_name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['username']])
                 #newembed = discord.Embed.from_data(oldmess.embeds[0])
                 #New method for discord.py 1.0+
                 newembed = oldmess.embeds[0]
-                newmsg = rec['user_name'] + " is no longer online. Better luck next time!"
+                newmsg = rec['username'] + " is no longer online. Better luck next time!"
                 await oldmess.edit(content=newmsg,embed=newembed)
             #We should delete the message
             elif mydata["Servers"][server]["MSG"] == "delete" :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await channel.fetch_message(savedmsg[server][rec['user_name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['username']])
                 await oldmess.delete()
         except Exception as e :
             #print("RM",repr(e))
@@ -185,7 +185,7 @@ async def removemsg(rec) :
             pass
 
 async def updatemsg(rec) :
-    #print("Updating",rec['user_name'])
+    #print("Updating",rec['username'])
     myembed = await makeembed(rec)
     noprev = await simpembed(rec)
     for server in mydata['AnnounceDict'][rec['username']] :
@@ -200,7 +200,7 @@ async def updatemsg(rec) :
             oldmess = None
             try :
                 channel = client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
-                oldmess = await channel.fetch_message(savedmsg[server][rec['user_name']])
+                oldmess = await channel.fetch_message(savedmsg[server][rec['username']])
             except KeyError as e:
                 #print("1",repr(e))
                 pass #Server no longer has an announce channel set, or message
@@ -438,19 +438,21 @@ async def handler(command, message) :
             msg = ""
             notfound = set()
             for newchan in command[1:] :
+                #print(newchan)
                 if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100 :
                     msg += "Too many listens - limit is 100 per server. "
                     break
                 newrec = ""
                 #Need to match case with the piczel name, so test it first
                 if not newchan in mydata["AnnounceDict"] :
-                    newrec = await agetchannel(command[1])
+                    newrec = await agetchannel(newchan)
+                    #print(newrec)
                     if not newrec :
                         notfound.add(newchan)
                     else :
                         newchan = newrec["username"]
-                    #Haven't used this channel anywhere before, make a set for it
-                    mydata["AnnounceDict"][newchan] = set()
+                        #Haven't used this channel anywhere before, make a set for it
+                        mydata["AnnounceDict"][newchan] = set()
                 else :
                     newrec = newchan
                 #Channel does not exist on service, so do not add.
@@ -460,10 +462,10 @@ async def handler(command, message) :
                     #This marks the server as listening to the channel
                     mydata["Servers"][message.guild.id]["Listens"].add(newchan)
                     added.add(newchan)
-            if newlist :
-                newlist = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
-                newlist.sort()
-                msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(newlist)
+            if added :
+                added = [*["**" + item + "**" for item in added if item in parsed], *[item for item in added if not item in parsed]]
+                added.sort()
+                msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(added)
             if notfound :
                 msg += "\nThe following channels were not found and could not be added: " + ", ".join(notfound)
             if not msg :
