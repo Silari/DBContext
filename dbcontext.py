@@ -3,18 +3,10 @@
 
 #Core TODO list:
 #0.5
-#addmult isn't working - piczel ln 453 - newrec used before assignment
-##Potentially fixed
-#Add removemult for removing multiple streams at once.
-#Maybe add 'with channel.typing()' around command interpreter to show a reaction
 
 #Add role management permission
-#Would add addperm command to give someone the "PicartoWatch" perm
-##also would add "PWNotify" role that can get @'d if proper option is set.
-
-#Respond to PMs, at least for the help context
-#Some kind of command to file bugs? In the help context
-##Use a GIT for these two things - wiki page can provide all the help
+##Would allow addperm command to give someone the "PicartoWatch" perm
+##also would allow "PWNotify" role that can get @'d if proper option is set.
 
 #All modules TODO
 #Now that options exist, add option to ignore Adult streams in announcements.
@@ -30,6 +22,11 @@ changelog["0.5"] = '''0.5 from 0.4 Changelog:
 GENERAL
 Updated for discord.py current version: 1.1.1.
   This should make the bot considerably more reliable in case of internet or server outages.
+Link to online version of help on the github page added.
+Added removemult command - removes multiple streams, separated by space, same as addmult.
+Bot nows shows the typing status while responding to commands.
+Updated API parsing to handle 0-byte returns. Update will be skipped for that cycle.
+  Both picarto and piczel were updated. Twitch has not due to differences in the API.
 Changed internal handling of module data - no longer passed to the handler.
 Fixed list command for all modules not checking if server options exist.
 Fixed addmult command for all modules failing if channel was already added.
@@ -240,6 +237,7 @@ async def helphandle(command, message) :
             await message.channel.send(msg)
     else :
         msg = "PicartoWatch bot version " + str(version)
+        msg += "\nOnline help and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
         msg += "\nPlease use '<module> help' for help with specific modules"
         msg += "\nThe following modules are available for use: " + ", ".join(contexts)
         msg += "\nI listen to commands on any channel from users with the Administrator role in channel."
@@ -250,8 +248,8 @@ newcontext("help",helphandle,{})
 
 async def debughandler(command, message) :
     #'safe' commands like help can go up here
-    if not (message.author.id == '273076937474441218') :
-        print("Not GP, do not run")
+    if not (message.author.id == 273076937474441218) :
+        print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         #await message.channel.send("Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
         return
@@ -290,15 +288,9 @@ async def debughandler(command, message) :
         await sendall(msg)
     elif command[0] == 'teststuff' :
         await picartocontext.removemsg(picartocontext.parsed[command[1]])
-    elif command[0] == 'embedtest' :
-        oldmess = await client.get_message(message.channel,command[1])
-        oldmess.embeds[0]['fields'][0]['value'] = "Viewers: " + command[2]
-        print("Old ver:",oldmess.embeds[0])
-        newembed = discord.Embed.from_data(oldmess.embeds[0])
-        print("New ver:",newembed.to_dict())
-        newembed.set_image(url=oldmess.embeds[0]['image']['url'])
-        await client.edit_message(oldmess,new_content=oldmess.content,embed=newembed)
-        pass
+    elif command[0] == 'typing' :
+        await asyncio.sleep(6)
+        await message.channel.send("Wait done.")
 newcontext("debug",debughandler,{})
 
 #Sends a message to all servers
@@ -351,7 +343,11 @@ async def on_message(message):
     if message.author.bot :
         return
     #Currently we ignore PMs. Later, this will prompt the basic help dialog.
-    if not message.guild : #Ignore PMs for now
+    if not message.guild : #PMs just get a help dialog and then we're done.
+        msg = client.user.name + " bot version " + str(version)
+        msg += "\nPlease use '@" + client.user.name + " help' in a server channel for help on using the bot."
+        msg += "\nOnline help is also available at <" + helpurl + ">."
+        await message.channel.send(msg)
         return
     hasrole = False
     #Check if one of the users roles matches the bot's name
@@ -359,17 +355,20 @@ async def on_message(message):
         #print(hasrole, item.name, client.user.name)
         if client.user.name == item.name :
             hasrole = True
+            #print(hasrole, item.name, client.user.name)
     #The bot listens to anyone who is an admin, or has a role named after the bot
     if message.author.guild_permissions.administrator or hasrole :
         command = message.content.split()
-        if message.content.startswith('<@' + str(client.user.id) + "> ") :
-            #print("Listening for message")
+        if message.content.startswith('<@' + str(client.user.id) + ">") :
+            print("Listening for message", len(command))
             if len(command) < 2 :
-                msg = client.user.name + " bot version " + version
+                msg = client.user.name + " bot version " + str(version)
                 msg += "\nPlease use '@" + client.user.name + " help' for help on using the bot."
-                msg += "Online help is available at <" + helpurl + ">."
+                msg += "\nOnline help is available at <" + helpurl + ">."
+                await message.channel.send(msg)
             elif command[1] in contexts :
-                await getcontext(command[1],message)
+                async with message.channel.typing() :
+                    await getcontext(command[1],message)
             else :
                 msg = "Unknown command '" + command[1] + "'."
                 await message.channel.send(msg)
@@ -417,25 +416,27 @@ async def savetask() :
     #Saves data every five minutes. Stops immediately if client is closed so it
     #won't interfere with the save on close.
     while not client.is_closed() :
-        if not client.is_closed() :
-            await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed() :
-            await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed() :
-            await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed() :
-            await asyncio.sleep(60) # task runs every 60 seconds        
-        if not client.is_closed() :
-            await asyncio.sleep(60) # task runs every 60 seconds
-        #We've waited five minutes, save data
-        if not client.is_closed() :
-            await savecontexts() # task runs every 60 seconds        
+        try :
+            if not client.is_closed() :
+                await asyncio.sleep(60) # task runs every 60 seconds        
+            if not client.is_closed() :
+                await asyncio.sleep(60) # task runs every 60 seconds        
+            if not client.is_closed() :
+                await asyncio.sleep(60) # task runs every 60 seconds        
+            if not client.is_closed() :
+                await asyncio.sleep(60) # task runs every 60 seconds        
+            if not client.is_closed() :
+                await asyncio.sleep(60) # task runs every 60 seconds
+            #We've waited five minutes, save data
+            if not client.is_closed() :
+                await savecontexts() # task runs every 60 seconds
+        except asyncio.CancelledError :
+            return
 
 import signal
 #This section should cause the bot to shutdown and exit properly on SIGTERM
 #It should cause the threads to shut down, which ends client.run and then runs
 #the finally block below to save the data.
-#It may need 60 seconds for the updatepicarto task to finish sleeping.
 signal.signal(signal.SIGTERM,closebot)
 
 if __name__ == "__main__" :
@@ -443,7 +444,7 @@ if __name__ == "__main__" :
     task = client.loop.create_task(savetask())
     #Start our context modules updatewrapper task, if they had one when adding.
     for modname in taskmods :
-        print("Starting task for:",modname.__name__)
+        #print("Starting task for:",modname.__name__)
         tasks.append(client.loop.create_task(modname.updatewrapper()))
     try :
         client.run(token)

@@ -48,6 +48,8 @@ async def updateparsed() :
     global parsed
     async with aiohttp.request('GET',"https://api.picarto.tv/v1/online?adult=true&gaming=true") as resp :
         buff = await resp.text()
+        if not buff :
+            return False
         parsed = {item['name']:item for item in json.loads(buff)}
         resp.close()
     return True
@@ -129,7 +131,7 @@ async def updatewrapper() :
             await updatepicarto()
         except asyncio.CancelledError :
             #Task was cancelled, so just stop.
-            pass
+            return
         except Exception as error :
             print("Pwrap:",repr(error))
     
@@ -137,7 +139,10 @@ async def updatewrapper() :
 async def updatepicarto():
     if not client.is_closed(): #Keep running until client stops
         oldlist = parsed
-        await updateparsed()
+        if not await updateparsed() :
+            #Updating failed for some reason - empty buffer was given.
+            #For now, just return and we'll try again in a minute.
+            return
         #print("Updated: ", len(parsed))
         oldset = set(oldlist)
         newset = set(parsed)
@@ -194,7 +199,9 @@ async def removemsg(rec) :
                 oldmess = await channel.fetch_message(savedmsg[server][rec['name']])
                 #newembed = discord.Embed.from_data(oldmess.embeds[0])
                 #New method for discord.py 1.0+
-                newembed = oldmess.embeds[0]
+                newembed = oldmess.embeds[0].to_dict()
+                del newembed['image']
+                newembed = discord.Embed.from_dict(newembed)
                 newmsg = rec['name'] + " is no longer online. Better luck next time!"
                 await oldmess.edit(content=newmsg,embed=newembed)
             #We should delete the message
@@ -515,6 +522,45 @@ async def handler(command, message) :
                     pass #Value not in list, don't worry about it
             msg = "Ok, I will no longer announce when " + command[1] + " comes online."
             await message.channel.send(msg)
+        elif command[0] == 'removemult' :
+            if not (message.guild.id in mydata["Servers"]) :
+                #Haven't created servers info dict yet
+                await message.channel.send("No channels are being listened to yet!")
+                return
+            if not ("Listens" in mydata["Servers"][message.guild.id]) :
+                #No listens added yet
+                await message.channel.send("No channels are being listened to yet!")
+                return
+            added = set()
+            msg = ""
+            notfound = set()
+            for newchan in command[1:] :
+                #print(newchan)
+                try :
+                    mydata["AnnounceDict"][newchan].remove(message.guild.id)
+                    added.add(newchan)
+                    #If no one is watching that channel anymore, remove it
+                    if not mydata["AnnounceDict"][newchan] :
+                        mydata["AnnounceDict"].pop(newchan,None)
+                except ValueError :
+                    notfound.add(newchan)
+                    pass #Value not in list, don't worry about it
+                except KeyError :
+                    notfound.add(newchan)
+                    pass #Value not in list, don't worry about it
+                try :
+                    mydata["Servers"][message.guild.id]["Listens"].remove(newchan)
+                except ValueError :
+                    pass #Value not in list, don't worry about it
+                except KeyError :
+                    pass #Value not in list, don't worry about it
+            if added :
+                msg += "Ok, I will no longer announce the following streamers: " + ", ".join(added)
+            if notfound :
+                msg += "\nThe following channels were not found and could not be removed: " + ", ".join(notfound)
+            if not msg :
+                msg += "Unable to remove any channels due to unknown error."
+            await message.channel.send(msg)
         elif command[0] == 'detail' :
             if len(command) == 1 : #No channel given
                 await message.channel.send("You need to specify a user!")
@@ -543,6 +589,7 @@ async def handler(command, message) :
             msg += "\nadd <name>: adds a new streamer to announce. Limit of 100 channels per server."
             msg += "\naddmult <names>: adds multiple new streams at once, seperated by a space. Channels past the server limit will be ignored."
             msg += "\nremove <name>: removes a streamer from announcements."
+            msg += "\nremovemult <names>: removes multiple new streams at once, seperated by a space."
             msg += "\ndetail <name>: Provides details on the given channel, including multi-stream participants."
             msg += "\nlist: Lists the current announcement channel and all listened streamer."
             msg += "\nSome commands/responses will not work unless an announcement channel is set."
