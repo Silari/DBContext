@@ -4,15 +4,26 @@
 #Core TODO list:
 #0.5
 
-#Add role management permission
-##Would allow addperm command to give someone the "PicartoWatch" perm
-##also would allow "PWNotify" role that can get @'d if proper option is set.
+#Add role management permission - DONE
+##Can also allow "PWNotify" role that can get @'d if proper option is set.
+###Do this via reacting to a message sent by the bot. Can unreact to unset?
+
+#0.6 Idea:
+#Rewrite context modules to be class based? picartocontext(name='picarto')
+#Would allow GREATLY simplifying code, as they could all inherit from a base API
+#handling context class, and only overwrite the few pieces I need to change.
+#This would allow for loading multiple copies of a class, just use a different
+#name. The API calls and such would still need to be shared though! Maybe check
+#if parsed is already filled or if non-default don't run, just use the already
+#saved parsed. Would need that to be static then? Or not, since it's saved to the
+#module itself, so each class would be able to access it just fine. Would need to
+#keep a separate copy inside each class instance though so it'd know what changed
+#unless I rewrite the module to keep the changes.
 
 #All modules TODO
 #Now that options exist, add option to ignore Adult streams in announcements.
 ##Not everything may support that
 #Option to @here
-#Change options to allow multiple setting. If in a group, last takes precedence.
 #Maybe redo options to be a ['Servers'][server]['Options'] = set, includes all options in one group.
 ##That would make it more difficult to remove conflicting options though?
 
@@ -30,7 +41,9 @@ Updated API parsing to handle 0-byte returns. Update will be skipped for that cy
 Changed internal handling of module data - no longer passed to the handler.
 Fixed list command for all modules not checking if server options exist.
 Fixed addmult command for all modules failing if channel was already added.
-Changed data storage name to dbcontexts.bin.'''
+Changed data storage name to dbcontexts.bin.
+MANAGE MODULE - NEW
+Added. Allows for easier managing of roles allowing bot usage. Requires Manage Roles permission!'''
 changelog["0.4"] = '''0.4 from 0.3 Changelog:
 GENERAL
 Add piczel.tv support.
@@ -96,6 +109,7 @@ client = discord.Client()
 #Invite link for the PicartoBot. Allows adding to a server by a server admin.
 #This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
+roleinvite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268913728"
 #URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
@@ -201,7 +215,7 @@ async def handler(command, message, handlerdata) :
     #This is also used as the default init function - essentially does nothing
     return
 
-async def helphandle(command, message) :
+async def helphandler(command, message) :
 ##    if command :
 ##        msg = 'For help with a specific context, please use "<context> help"'
 ##        await message.channel.send(msg)
@@ -231,9 +245,11 @@ async def helphandle(command, message) :
             msg += "\nhelp, changelog, invite, version, versions"
             await message.channel.send(msg)
         elif command[0] == 'invite' :
-            msg = "I can be invited to join a server by an administrator of the server using the following link\n"
-            msg += "Note that the link includes the permissions that I will be granted when joined.\n"
-            msg += "<" + invite + ">"
+            msg = "I can be invited to join a server by an administrator of the server using the following links\n"
+            msg += "\nNote that the link includes the permissions that I will be granted when joined.\n"
+            msg += "\nIf you do not wish to use the manage module: <" + invite + ">"
+            msg += "\nIf you wish to use the manage module: <" + roleinvite + ">"
+            msg += "\nNote that if the bot is already in your server, re-inviting will NOT reset permissions."
             await message.channel.send(msg)
     else :
         msg = "PicartoWatch bot version " + str(version)
@@ -244,10 +260,132 @@ async def helphandle(command, message) :
         msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
         await message.channel.send(msg)
 
-newcontext("help",helphandle,{})
+newcontext("help",helphandler,{})
+
+async def getuserrole(guild) :
+    #Find the bot role in the server
+    userrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
+    #Doesn't exist, so we need to make it.
+    if not userrole :
+        #Named after the bot, no permissions, no color, non-hoist, non-mentionable.
+        try :
+            userrole = await guild.create_role(reason="Role created for bot management",name=client.user.name)
+        except : #May not have permission, dunno what else.
+            pass #This should leave userrole as none
+    return userrole
+
+#Checks if the Member has a role with the specified name
+async def hasrole(member, rolename) :
+    for item in member.roles :
+        #print(hasrole, item.name, client.user.name)
+        if rolename == item.name :
+            return True
+            #print(hasrole, item.name, client.user.name)
+    return False
+
+async def managehandler(command, message) :
+    #Commands: check (if user can use bot), help, (Check for manage_role here!)
+    #add, remove
+    if len(command) == 0 :
+        await message.channel.send("Please provide a command!")
+        return
+    if command[0] == 'help' :
+        msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
+        msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands."
+        msg += "\nadd <username#0000>: Gives permission to one or more users to access bot commands. Note that bot accounts are ALWAYS ignored."
+        msg += "\nremove <username#0000>: Revokes permission to one or more users to access bot commands. Note that channel admins ALWAYS have bot access!"
+        if not message.channel.permissions_for(message.guild.me).manage_roles :
+            msg += "\n**Bot does not** have permission to manage user roles. Only check and help commands are active."
+            msg += "\Please manually add the 'manage roles' permission to make use of additional features."
+        await message.channel.send(msg)
+        return
+    if command[0] == 'check' :
+        userrole = await getuserrole(message.guild)
+        hasperm = set()
+        noperm = set()
+        msg = ""
+        notfound = set()
+        for username in command[1:] :
+            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            if founduser :
+                if founduser.guild_permissions.administrator :
+                    hasperm.add(username + ":admin")
+                elif userrole and await hasrole(founduser,userrole.name) :
+                    hasperm.add(username + ":role")
+                else :
+                    noperm.add(username)
+            else :
+                notfound.add(username)
+        if hasperm :
+            msg += "Permitted users: " + ", ".join(hasperm)
+        if noperm :
+            msg += "\nNot permitted users: " + ", ".join(noperm)
+        if notfound :
+            msg += "\nThe following users were not found in the server: " + ", ".join(notfound)
+        if not msg :
+            msg += "Unable to check any users due to unknown error."
+        await message.channel.send(msg)
+        return
+    if not (command[0] in ['add','remove']) :
+        await message.channel.send("Unknown command Please use 'manage help' to see available commands.")
+        return
+    if not message.channel.permissions_for(message.guild.me).manage_roles :
+        await message.channel.send("Bot does not have permission to manage user roles.")
+        return
+    if command[0] == 'add' :
+        userrole = await getuserrole(message.guild)
+        if not userrole :
+            await message.channel.send("Unable to obtain/create the necessary role for unknown reason.")
+            return
+        added = set()
+        msg = ""
+        notfound = set()
+        for username in command[1:] :
+            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            if founduser :
+                await founduser.add_roles(userrole,reason="Added user to bot management.")
+                added.add(username)
+            else :
+                notfound.add(username)
+        if added :
+            msg += "Ok, the following users were given the role for bot commands: " + ", ".join(added)
+        if notfound :
+            msg += "\nThe following users were not found and could not be added: " + ", ".join(notfound)
+        if not msg :
+            msg += "Unable to add any users due to unknown error."
+        await message.channel.send(msg)
+    if command[0] == 'remove' :
+        userrole = await getuserrole(message.guild)
+        if not userrole :
+            await message.channel.send("Unable to obtain/create the necessary role for unknown reason.")
+            return
+        removed = set()
+        msg = ""
+        notfound = set()
+        for username in command[1:] :
+            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            if founduser :
+                await founduser.remove_roles(userrole,reason="Removed user from bot management.")
+                removed.add(username)
+            else :
+                notfound.add(username)
+        if removed :
+            msg += "Ok, removed the bot command role from the following users: " + ", ".join(removed)
+        if notfound :
+            msg += "\nThe following users were not found: " + ", ".join(notfound)
+        if not msg :
+            msg += "Unable to remove roles from any users due to unknown error."
+        await message.channel.send(msg)
+
+newcontext("manage",managehandler,{})
 
 async def debughandler(command, message) :
     #'safe' commands like help can go up here
+    if len(command) > 0 and command[0] == 'help' :
+        msg = "Debug module. This module is used for debugging/testing and notifying servers of updates/downtimes/etc."
+        msg += "\nIt can not be used by anyone other than the bot developer."
+        await message.channel.send(msg)
+        return
     if not (message.author.id == 273076937474441218) :
         print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
@@ -286,11 +424,19 @@ async def debughandler(command, message) :
         msg = "The bot has been restarted and updated to version " + str(version)
         msg += ". Please use 'help changelog' to see a list of the additions/changes/fixes to this version."
         await sendall(msg)
-    elif command[0] == 'teststuff' :
-        await picartocontext.removemsg(picartocontext.parsed[command[1]])
+    elif command[0] == 'testperm' :
+        try :
+            print(message.channel.permissions_for(message.author))
+        except :
+            pass
+        try :
+            print(message.channel.permissions_for(message.guild.get_member(client.user.id)))
+        except :
+            pass
     elif command[0] == 'typing' :
         await asyncio.sleep(6)
         await message.channel.send("Wait done.")
+        
 newcontext("debug",debughandler,{})
 
 #Sends a message to all servers
@@ -360,7 +506,7 @@ async def on_message(message):
     if message.author.guild_permissions.administrator or hasrole :
         command = message.content.split()
         if message.content.startswith('<@' + str(client.user.id) + ">") :
-            print("Listening for message", len(command))
+            #print("Listening for message", len(command))
             if len(command) < 2 :
                 msg = client.user.name + " bot version " + str(version)
                 msg += "\nPlease use '@" + client.user.name + " help' for help on using the bot."
