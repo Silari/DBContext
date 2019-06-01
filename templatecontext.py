@@ -72,7 +72,7 @@ async def updatewrapper() :
     #The above makes sure the client is ready to read/send messages and is fully
     #connected to discord. Usually, it is best to leave it in.
     #while not loop keeps a background task running until the client is closed
-    while not client.is_closed :
+    while not client.is_closed() :
         try :
             await asyncio.sleep(60) # task runs every 60 seconds
             await updatetask() #The function that actually performs anything
@@ -82,7 +82,7 @@ async def updatewrapper() :
     
 async def updatetask():
     #We want this check here in case we stopped in the last 60 seconds.
-    if not client.is_closed:
+    if not client.is_closed():
         #The content of anything you need to do periodically would be here.
         pass
 
@@ -99,20 +99,20 @@ async def handler(command, message) :
         #always goes in the channel the message was sent from - message.channel
         if command[0] == 'listen' :
             #Set the channel the message was sent in as the Announce channel
-            if not (message.server.id in mydata["Servers"]) :
-                mydata["Servers"][message.server.id] = {} #Add data storage for server
-            mydata["Servers"][message.server.id]["AnnounceChannel"] = message.channel.id
+            if not (message.guild.id in mydata["Servers"]) :
+                mydata["Servers"][message.guild.id] = {} #Add data storage for server
+            mydata["Servers"][message.guild.id]["AnnounceChannel"] = message.channel.id
             msg = "Ok, I will now start announcing in this server, using this channel."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         #And the reverse of listen is stop, which removes the channel
         elif command[0] == 'stop' :
             #Stop announcing - just removed the AnnounceChannel option
             try :
-                del mydata["Servers"][message.server.id]["AnnounceChannel"]
+                del mydata["Servers"][message.guild.id]["AnnounceChannel"]
             except KeyError :
                 pass #Not listening, so skip
             msg = "Ok, I will stop announcing on this server."
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
         #For additional examples of commands, see the other contexts
     else : #No extra command given, or unknown command
         #This is your help area, which should give your users an idea how to use
@@ -125,7 +125,7 @@ async def handler(command, message) :
                 msg += "\nSentences are separated like this for readability and usage."
                 msg += "\nIt's good practice to limit the number of messages sent at once."
                 msg += "\nDiscord has a rate limit built in, and every context needs to be responsible for it's usage."
-                await client.send_message(message.channel,msg)
+                await message.channel.send(msg)
                 #msg += "\n"
         #The general help goes here - it should list commands or some site that
         #has a list of them
@@ -135,4 +135,4 @@ async def handler(command, message) :
             msg += "\nstop: stops announcing streams and removes the announcement channel."
             msg += "\nSome commands/responses will not work unless an announcement channel is set."
             msg += "\nPlease note that all commands, options and channel names are case sensitive!"
-            await client.send_message(message.channel,msg)
+            await message.channel.send(msg)
