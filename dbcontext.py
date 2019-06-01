@@ -455,7 +455,7 @@ async def sendall(msg) :
             channel = client.get_channel(servchan)
             #channel = client.get_channel(mydata['Servers'][server]["AnnounceChannel"])
             if channel : #We may no longer be in the server which would mean no channel
-                await message.channel.send(msg)
+                await channel.send(msg)
 
 #I don't remember what this was for.
 #I think it was a debug thing which isn't needed due to the debug context
