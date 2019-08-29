@@ -1,7 +1,7 @@
 # DBContext
 A discord.py based bot with module loading functions - aka contexts. Currently, this bot allows for announcing for Picarto.TV, Twitch.TV, and Piczel.TV streams on discord servers. Each is configured independently, allowing for each type to occupy their own channel with their own options if desired. A template is provided to create new contexts. Essentially, each module handles any command that uses the module name - ie. any command starting with picarto is given to the picartocontext module to handle. The dbcontext module manages the client instance, and provides a persistent data storage location which is saved periodically to dbcontext.bin via pickling.
 
-Modules should be simple, easy to use, and not require excessive permissions. This is not an administration bot, and does not ask for any permissions beyond reading, writing, and editing messages, embedding in messages, adding reactions and emojis, and adding mentions to messages. This is little more than what the average user has by default.
+Modules should be simple, easy to use, and not require excessive permissions. This is not an administration bot, and does not ask for any permissions beyond reading, writing, and editing messages, embedding in messages, adding reactions and emojis, and adding mentions to messages. This is little more than what the average user has by default. It also asks for role management permissions to add/remove the role permitting users to use the bot, but is not required.
 
 ### Prerequisites
 If you simply wish to add the current instance of dbcontext to your server, check the instructions on [the project wiki.](https://github.com/Silari/DBContext/wiki)
@@ -19,7 +19,7 @@ Windows
 ### Installation
 You will need the main dbcontext.py file and the three context files (picartocontext.py, twitchcontext.py, and piczelcontext.py) in the same directory. You will also need to edit the apitoken.py file to include your api tokens for Discord and twitch.
 
-If you wish to write your own context module, see templatecontext.py for a basic framework example. The three current contexts also make for good examples - they share a large portion of their code, with most differences in a few helper functions that deal with the slight changes in how their APIs function.
+If you wish to write your own context module, see templatecontext.py or templateclass.py for a basic framework example. The three current contexts also make for good examples of subclassing basecontext - they share a large portion of their code, with most differences in a few helper functions that deal with the slight changes in how their APIs function.
 
 # Links
 * [Discord.py GitHub repository](https://github.com/Rapptz/discord.py)
