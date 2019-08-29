@@ -1,17 +1,32 @@
 #discord bot with module based functionality.
-#Now based on discord.py version 1.1.1
+#Now based on discord.py version 1.2.2
 
+#SUPER IMPORTANT TODO: FIX TWITCH USING URLLIB.REQUEST. DONE
 #Core TODO list:
-#0.5
+#I've seen a few cases of offline streams not getting edited to offline.
+##Maybe some error in removemsg is causing it but getting hidden?
 
+#Rewrite to use a single aiohttp.ClientSession for all. .get supports (header=)
+##Only issue is when to create the session as it needs to be AFTER the event loop
+##is going.
+#When I do this I could probably rewrite basecontext to handle the API calls
+#too. Picarto+Piczel aren't different at all, beyond the URLs. Even twitch might
+#be able to be a for wrapper around the API call.
+
+#Change offline message to include how long the stream was going for, based on
+#the time the original announcement was made - snowflake includes a time
+#component, IIRC, so the saved message ID time - current time.
+
+#maybe have it announce online channels if it hasn't announced them before -
+#ie was offline when they came online, rather than only when they first come online
+
+#Holdover from 0.5:
 #Add role management permission - DONE
 ##Can also allow "PWNotify" role that can get @'d if proper option is set.
 ###Do this via reacting to a message sent by the bot. Can unreact to unset?
 
 #0.6 Idea:
-#Rewrite context modules to be class based? picartocontext(name='picarto')
-#Would allow GREATLY simplifying code, as they could all inherit from a base API
-#handling context class, and only overwrite the few pieces I need to change.
+#Rewrite context modules to be class based
 #This would allow for loading multiple copies of a class, just use a different
 #name. The API calls and such would still need to be shared though! Maybe check
 #if parsed is already filled or if non-default don't run, just use the already
@@ -20,15 +35,45 @@
 #keep a separate copy inside each class instance though so it'd know what changed
 #unless I rewrite the module to keep the changes.
 
+#Ok what if class based, with a default to an overall set of options if not set?
+#If I make fallbacks that might allow setting different channels for different
+#listens even within the same module. <Listen instance>-><context instance>-><discord bot options>
+#Honestly it'd be easier to just set the listen instance to the context/discordbot channel
+#Only downside would be changing the discordbot channel afterwards wouldn't change all the listens
+#unless it always overwrites the old channel with new channel, which could be a minor issue.
+
+#@Bot announce - announces here for all?
+#@Bot accounce <channel> - announce in <channel> for all?
+
 #All modules TODO
 #Now that options exist, add option to ignore Adult streams in announcements.
-##Not everything may support that
+##Not everything may support that - not a priority anyway - don't watch em.
 #Option to @here
 #Maybe redo options to be a ['Servers'][server]['Options'] = set, includes all options in one group.
 ##That would make it more difficult to remove conflicting options though?
+#Redo detail announce so that it responds in the channel it was requested in?
+#Fix some of the excepts in basecontext to not use Exception. - done
+##Check the subclasses too
 
-version = 0.5 #Current bot version
+version = 0.6 #Current bot version
 changelog = {}
+##changelog["0.7"] = '''0.7 from 0.6 Changelog:
+##GENERAL
+##Added stream length to edited announcement messages. : PARTIAL
+##'''
+changelog["0.6"] = '''0.6 from 0.5 Changelog:
+GENERAL
+Data saving made more robust, and most errors should be found before attempting to save data.
+Activity is re-set when resuming connection.
+list command for all modules links to the set announcement channel, instead of just saying the name.
+API based modules rewritten to be classes, inheriting from a common basecontext class.
+basecontext caches record IDs to avoid needing multiple calls.
+basecontext handles attempting announcement in a server it is not a member of.
+basecontext handles attempting editing announcement when no announcement was saved.
+basecontext uses more specific exceptions for error catching, to avoid hiding unexpected errors.
+Closing the bot is handled more gracefully.
+Twitch module now uses properly aiohttp for all connections.
+Added a small purpose-built module for one server to handle unwanted role changes.'''
 changelog["0.5"] = '''0.5 from 0.4 Changelog:
 GENERAL
 Updated for discord.py current version: 1.1.1.
@@ -113,6 +158,8 @@ roleinvite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704
 #URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
+calledstop = False #Did we intentionally stop the bot?
+
 #This holds the needed API keys. You may want to use other methods for storing these.
 import apitoken
 #token is the Discord API
@@ -148,7 +195,9 @@ except FileNotFoundError :
     pass
 print("Initial Contexts:",contexts)
 newcont = {}
+contfuncs = {}
 
+#Used to convert old contexts to new one for 0.5 due to discord.py changes
 def convertcontexts() :
     global newcont
     newcont = copy.deepcopy(contexts)
@@ -163,15 +212,17 @@ def convertcontexts() :
                 if 'AnnounceChannel' in newcont[module]['Data']['Servers'][int(item)] :
                     newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'] = int(newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'])
 
-#Function to setup new context handler
+#Function to setup new context handler - handles the dbcontext side of adding.
 def newcontext(name,handlefunc,data) :
     '''Registers a new context for the bot to handle.'''
     if not (name in contexts) :
         #Context doesn't exist, create and init with default data and function
-        contexts[name] = {"name":name,"Data":data,"function":handlefunc}
+        contexts[name] = {"name":name,"Data":data}
+        contfuncs[name] = handlefunc
     else :
         #Context exists, update handler function
-        contexts[name]["function"] = handlefunc
+        #contexts[name]["function"] = handlefunc
+        contfuncs[name] = handlefunc
         #If data wasn't created, add it
         if not contexts[name]["Data"] :
             contexts[name]["Data"] = data
@@ -179,7 +230,7 @@ def newcontext(name,handlefunc,data) :
             contexts[name]["Data"] = {**data, **contexts[name]["Data"]}
     return
 
-#Function to setup a module as a context
+#Function to setup a module as a context - handles the module side of adding.
 def newmodcontext(modname) :
     '''Registers a module as a context holder.'''
     #Module needs the following:
@@ -194,18 +245,42 @@ def newmodcontext(modname) :
     except :
         pass
 
-import twitchcontext
-newmodcontext(twitchcontext)
-import piczelcontext
-newmodcontext(piczelcontext)
-import picartocontext
-newmodcontext(picartocontext)
+#No longer used, switched to class based contexts.
+##import twitchcontext
+##newmodcontext(twitchcontext)
+##import piczelcontext
+##newmodcontext(piczelcontext)
+##import picartocontext
+##newmodcontext(picartocontext)
+
+#Function to setup a class as a context - handles the instance side of adding.
+classcontexts = []
+def newclasscontext(classinst) :
+    classcontexts.append(classinst) #Keep a reference to it around
+    #Instance needs the following:
+    #Name - a string that acts as the command to activate and the name data is stored under
+    #handler - the function to call with the command requested, the message event, and a reference to the modules data
+    newcontext(classinst.name, classinst.handler, classinst.defaultdata)
+    classinst.client = client
+    classinst.mydata = contexts[classinst.name]["Data"]
+    try :
+        if classinst.updatewrapper :
+            taskmods.append(classinst)
+    except :
+        pass
+    
+import picartoclass
+newclasscontext(picartoclass.PicartoContext())
+import piczelclass
+newclasscontext(piczelclass.PiczelContext())
+import twitchclass
+newclasscontext(twitchclass.TwitchContext())
 
 async def getcontext(name,message) :
     '''Grabs the context handler associated with name and calls the registered
        function, providing the command and the data dict.'''
     thiscontext = contexts[name]
-    await thiscontext["function"](message.content.split()[2:],message)
+    await contfuncs[name](message.content.split()[2:],message)
 
 async def handler(command, message, handlerdata) :
     '''A generic handler function for a context. It should accept a string list
@@ -424,6 +499,11 @@ async def debughandler(command, message) :
         msg = "The bot has been restarted and updated to version " + str(version)
         msg += ". Please use 'help changelog' to see a list of the additions/changes/fixes to this version."
         await sendall(msg)
+    elif command[0] == 'quit' :
+        global calledstop
+        calledstop = True
+        await client.logout() #closebot()
+        client.loop.close()
     elif command[0] == 'testperm' :
         try :
             print(message.channel.permissions_for(message.author))
@@ -478,6 +558,45 @@ def sendmessage(channel,chanid) :
 #top_role - highest role
 #server_permissions - Returns permissions.
 
+
+#This is used in one specific server to prevent the Patreon bot from removing
+#the patreon roles from users after they stop their pledge. He prefers to let
+#users keep those roles if they've given him money.
+@client.event
+async def on_member_update(before, after) :
+    #print(repr(before))
+    #print(repr(after))
+    if before.guild.id != 253682347420024832 :
+        return
+    print(repr(before.roles))
+    print(repr(after.roles))
+    #If roles are the same, do nothing
+    if before.roles == after.roles :
+        return
+    #256408573397958656 - Sponsor
+    #336063609815826444 - Patron
+    addspon = False
+    addpat = False
+    if discord.utils.find(lambda m: m.id == 256408573397958656, before.roles) :
+        #print("user had Trixsponsor")
+        if not discord.utils.find(lambda m: m.id == 256408573397958656, after.roles) :
+            #print("user no longer has trixsponsor")
+            addspon = True
+    if discord.utils.find(lambda m: m.id == 336063609815826444, before.roles) :
+        #print("user had PWDpatron")
+        if not discord.utils.find(lambda m: m.id == 336063609815826444, after.roles) :
+            #print("user no longer has PWDpatron")
+            addpat = True
+    if addspon :
+        #print("Adding Trixsponsor")
+        userrole = discord.utils.find(lambda m: m.id == 256408573397958656, after.guild.roles)
+        await after.add_roles(userrole,reason="Re-adding removed patreon role")
+    if addpat :
+        #print("user had PWDpatron")
+        userrole = discord.utils.find(lambda m: m.id == 336063609815826444, after.guild.roles)
+        await after.add_roles(userrole,reason="Re-adding removed patreon role")
+    
+
 @client.event
 async def on_message(message):
     #Ignore messages we sent
@@ -525,6 +644,11 @@ async def on_message(message):
 #    pass
 
 @client.event
+async def on_resumed() :
+    #Ensure our activity is set when resuming.
+    await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
+    
+@client.event
 async def on_ready() :
     print('------\nLogged in as')
     print(client.user.name)
@@ -534,14 +658,15 @@ async def on_ready() :
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
 def closebot() :
-    client.loop.run_until_complete(client.logout())
+    myloop = asyncio.get_event_loop()
+    myloop.run_until_complete(client.logout())
     for t in asyncio.Task.all_tasks(loop=client.loop):
         if t.done():
             t.exception()
             continue
         t.cancel()
         try:
-            client.loop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
+            myloop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
             t.exception()
         except asyncio.InvalidStateError:
             pass
@@ -551,31 +676,50 @@ def closebot() :
             pass
 
 async def savecontexts() :
-    newcont = copy.deepcopy(contexts)
-    for cont in newcont :
-        if 'function' in newcont[cont] :
-            del newcont[cont]['function']
-    with open('dbcontexts.bin',mode='wb') as f:
-        pickle.dump(newcont,f,pickle.HIGHEST_PROTOCOL)
+    try :
+        newcont = copy.deepcopy(contexts)
+    except Exception as e :
+        print("Error in deepcopy:",repr(e))
+        #print(contexts)
+        return
+    #No longer needed - functions are in their own seperate dict now
+##    for cont in newcont :
+##        if 'function' in newcont[cont] :
+##            del newcont[cont]['function']
+    try :
+        #Dump contexts to a Bytes object - if it fails our file isn't touched
+        buff = pickle.dumps(newcont,pickle.HIGHEST_PROTOCOL)
+        with open('dbcontexts.bin',mode='wb') as f:
+                #Actually write the data to the buffer
+                f.write(buff)
+    except Exception as e :
+        print("error in savecontext",repr(e))
+        #print(newcont)
 
 async def savetask() :
     #Saves data every five minutes. Stops immediately if client is closed so it
     #won't interfere with the save on close.
     while not client.is_closed() :
         try :
+            #These were broken up into minute chunks to avoid a hang when closing
+            #The try:except CancelledError SHOULD have resolved that now.
             if not client.is_closed() :
-                await asyncio.sleep(60) # task runs every 60 seconds        
+                await asyncio.sleep(60)      
             if not client.is_closed() :
-                await asyncio.sleep(60) # task runs every 60 seconds        
+                await asyncio.sleep(60)      
             if not client.is_closed() :
-                await asyncio.sleep(60) # task runs every 60 seconds        
+                await asyncio.sleep(60)        
             if not client.is_closed() :
-                await asyncio.sleep(60) # task runs every 60 seconds        
+                await asyncio.sleep(60)        
             if not client.is_closed() :
-                await asyncio.sleep(60) # task runs every 60 seconds
+                await asyncio.sleep(60)
             #We've waited five minutes, save data
             if not client.is_closed() :
-                await savecontexts() # task runs every 60 seconds
+                #If there's some kind of error, we mostly ignore it and try again later
+                try :
+                    await savecontexts()
+                except Exception as e :
+                    print("Error in savetask:", repr(e))
         except asyncio.CancelledError :
             return
 
@@ -588,7 +732,7 @@ signal.signal(signal.SIGTERM,closebot)
 if __name__ == "__main__" :
     #Saves our context data periodically
     task = client.loop.create_task(savetask())
-    #Start our context modules updatewrapper task, if they had one when adding.
+    #Start our context modules' updatewrapper task, if they had one when adding.
     for modname in taskmods :
         #print("Starting task for:",modname.__name__)
         tasks.append(client.loop.create_task(modname.updatewrapper()))
@@ -628,5 +772,11 @@ if __name__ == "__main__" :
         for cont in contexts :
             if 'function' in contexts[cont] :
                 del contexts[cont]['function']
+        #Dump contexts to a Bytes object - if it fails our file isn't touched
+        buff = pickle.dumps(contexts,pickle.HIGHEST_PROTOCOL)
         with open('dbcontexts.bin',mode='wb') as f:
-            pickle.dump(contexts,f,pickle.HIGHEST_PROTOCOL)
+            #pickle.dump(contexts,f,pickle.HIGHEST_PROTOCOL)
+            #Actually write the data to the buffer
+            f.write(buff)
+    if calledstop :
+        sys.exit(42) #Asked to quit - used to tell systemd to not restart
