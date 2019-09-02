@@ -6,7 +6,7 @@ Modules should be simple, easy to use, and not require excessive permissions. Th
 ### Prerequisites
 If you simply wish to add the current instance of dbcontext to your server, check the instructions on [the project wiki.](https://github.com/Silari/DBContext/wiki)
 
-If you wish to run your own instance, you must use Python 3.6 or 3.7 (3.5 has not been tested, but is compatible with discord.py), and have installed discord.py version 1.1.1. Typically, this can be done easily via pip. 
+If you wish to run your own instance, you must use Python 3.6 or 3.7 (3.5 has not been tested, but is compatible with discord.py), and have installed discord.py version 1.2.2. Typically, this can be done easily via pip. 
 
 Linux/OS X
 
@@ -17,9 +17,9 @@ Windows
 `py -3 -m pip install -U discord.py`
 
 ### Installation
-You will need the main dbcontext.py file and the three context files (picartocontext.py, twitchcontext.py, and piczelcontext.py) in the same directory. You will also need to edit the apitoken.py file to include your api tokens for Discord and twitch.
+You will need the main dbcontext.py file, basecontext.py, and the three class files (picartoclass.py, twitchclass.py, and piczelclass.py) in the same directory. You will also need the apitoken.py file, and edit it to include your api tokens for Discord and twitch. Running the dbcontext.py file will start the bot.
 
-If you wish to write your own context module, see templatecontext.py or templateclass.py for a basic framework example. The three current contexts also make for good examples of subclassing basecontext - they share a large portion of their code, with most differences in a few helper functions that deal with the slight changes in how their APIs function.
+If you wish to write your own context module, see templatecontext.py or templateclass.py for a basic framework example. The three current contexts also make for good examples of subclassing basecontext - they share a large portion of their code, with most differences in a few helper functions that deal with the slight changes in how their APIs function. Picartoclass in particular shows how little new code one needs to add over basecontext to create a functional module.
 
 # Links
 * [Discord.py GitHub repository](https://github.com/Rapptz/discord.py)
