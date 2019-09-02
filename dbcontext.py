@@ -1,24 +1,29 @@
 #discord bot with module based functionality.
 #Now based on discord.py version 1.2.2
 
-#SUPER IMPORTANT TODO: FIX TWITCH USING URLLIB.REQUEST. DONE
 #Core TODO list:
+#IF I END UP ALLOWING MULTIPLE INSTANCES TO SHARE ONE UPDATETASK THEN I NEED TO
+#CORRECT USAGE OF PARSED TO BE .CLEAR AND .UPDATE INSTEAD OF REPLACING OUTRIGHT.
+#This would mean redoing updatetask to deepcopy the old parsed to a new one to
+#save it instead.
+
+#ADD NotImplementedError TO FUNCTIONS NEEDING TO BE OVERRIDDEN!
+#Not sure there are any of these left tbh
+
 #I've seen a few cases of offline streams not getting edited to offline.
 ##Maybe some error in removemsg is causing it but getting hidden?
 
-#Rewrite to use a single aiohttp.ClientSession for all. .get supports (header=)
-##Only issue is when to create the session as it needs to be AFTER the event loop
-##is going.
-#When I do this I could probably rewrite basecontext to handle the API calls
-#too. Picarto+Piczel aren't different at all, beyond the URLs. Even twitch might
-#be able to be a for wrapper around the API call.
-
-#Change offline message to include how long the stream was going for, based on
-#the time the original announcement was made - snowflake includes a time
-#component, IIRC, so the saved message ID time - current time.
+#If we add a channel we're already watching, does it resend an announcement?
+#If so, stop that. Check for saved ID.
 
 #maybe have it announce online channels if it hasn't announced them before -
 #ie was offline when they came online, rather than only when they first come online
+##This would require either constantly going through the entire online list and finding
+##which don't have a saved channel, or modifying updatewrapper to hold off on
+##the first update until it can use that to add any messages it needs to.
+###On the other hand, doing it that way would mean that I could save the savedmsgs
+###onto disk in case of shutdown, then on load match those back up automatically
+###to still running streams/edit them to offline if needed. That'd be nice.
 
 #Holdover from 0.5:
 #Add role management permission - DONE
@@ -47,20 +52,27 @@
 
 #All modules TODO
 #Now that options exist, add option to ignore Adult streams in announcements.
-##Not everything may support that - not a priority anyway - don't watch em.
+##Not everything may support that - not a priority anyway - don't watch em if you don't want to see em.
 #Option to @here
 #Maybe redo options to be a ['Servers'][server]['Options'] = set, includes all options in one group.
 ##That would make it more difficult to remove conflicting options though?
 #Redo detail announce so that it responds in the channel it was requested in?
-#Fix some of the excepts in basecontext to not use Exception. - done
-##Check the subclasses too
 
-version = 0.6 #Current bot version
+version = 0.7 #Current bot version
 changelog = {}
-##changelog["0.7"] = '''0.7 from 0.6 Changelog:
-##GENERAL
-##Added stream length to edited announcement messages. : PARTIAL
-##'''
+changelog["0.7"] = '''0.7 from 0.6 Changelog:
+GENERAL
+Quitting using the debug quit command now exits with status code 42, to allow for checking of intentional stoppage.
+Updates before declaring a stream offline moved to variable, as it's used in multiple places now.
+API based modules now track if the last API update succeeded. Failure will be noted in the list command.
+API modules all share a ClientSession instance.
+API calls have more stringent timeouts for server responses.
+Added acallapi, async function to get the given URL, with optional headers. This is used to centralize API handling.
+  All API calls in APIContext, Picartoclass, Piczelclass, and Twitchclass use acallapi now.
+updateparsed added to APIContext, used by Picarto+Piczel. Twitch still overrides.
+agetchannel added to APIContext, and result modified by subclasses as necessary.
+Added stream length to edited announcement messages.
+'''
 changelog["0.6"] = '''0.6 from 0.5 Changelog:
 GENERAL
 Data saving made more robust, and most errors should be found before attempting to save data.
@@ -150,11 +162,15 @@ changelog["0.1"] = "0.1 Changelog:\nInitial Version."
 import discord
 import copy #Needed to deepcopy contexts for periodic saving
 import asyncio #Async wait command
-client = discord.Client()
+import aiohttp #used for ClientSession which is passed to modules.
+import sys #Used for sys.exit(42) when debug quit is used.
+
+myloop = asyncio.get_event_loop()
+client = discord.Client(loop=myloop)
 #Invite link for the PicartoBot. Allows adding to a server by a server admin.
 #This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
-roleinvite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268913728"
+invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268913728"
 #URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
@@ -504,15 +520,8 @@ async def debughandler(command, message) :
         calledstop = True
         await client.logout() #closebot()
         client.loop.close()
-    elif command[0] == 'testperm' :
-        try :
-            print(message.channel.permissions_for(message.author))
-        except :
-            pass
-        try :
-            print(message.channel.permissions_for(message.guild.get_member(client.user.id)))
-        except :
-            pass
+    elif command[0] == 'checkupdate' :
+        print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
     elif command[0] == 'typing' :
         await asyncio.sleep(6)
         await message.channel.send("Wait done.")
@@ -658,15 +667,14 @@ async def on_ready() :
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
 def closebot() :
-    myloop = asyncio.get_event_loop()
-    myloop.run_until_complete(client.logout())
+    client.loop.run_until_complete(client.logout())
     for t in asyncio.Task.all_tasks(loop=client.loop):
         if t.done():
             t.exception()
             continue
         t.cancel()
         try:
-            myloop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
+            client.loop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
             t.exception()
         except asyncio.InvalidStateError:
             pass
@@ -682,10 +690,6 @@ async def savecontexts() :
         print("Error in deepcopy:",repr(e))
         #print(contexts)
         return
-    #No longer needed - functions are in their own seperate dict now
-##    for cont in newcont :
-##        if 'function' in newcont[cont] :
-##            del newcont[cont]['function']
     try :
         #Dump contexts to a Bytes object - if it fails our file isn't touched
         buff = pickle.dumps(newcont,pickle.HIGHEST_PROTOCOL)
@@ -729,45 +733,62 @@ import signal
 #the finally block below to save the data.
 signal.signal(signal.SIGTERM,closebot)
 
-if __name__ == "__main__" :
+async def makeclient() :
+    #Setup our aiohttp.ClientSession to pass to our modules that need it
+    mytime = aiohttp.ClientTimeout(total=60)
+    #Note that individual requests CAN still override this, but for most APIs it
+    #shouldn't take that long.
+    myconn = aiohttp.ClientSession(timeout=mytime)
+    return myconn
+
+async def startbot() :
+    myconn = await makeclient()
     #Saves our context data periodically
-    task = client.loop.create_task(savetask())
+    tasks.append(client.loop.create_task(savetask()))
     #Start our context modules' updatewrapper task, if they had one when adding.
     for modname in taskmods :
         #print("Starting task for:",modname.__name__)
-        tasks.append(client.loop.create_task(modname.updatewrapper()))
+        tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
+    await client.start(token)
+    
+def startupwrapper() :
     try :
-        client.run(token)
+        #client.run(token)
+        myloop.run_until_complete(startbot())
     #On various kinds of errors, close our background tasks, the bot, and the loop
     except SystemExit:
         print("SystemExit, closing")
-        task.cancel()
+        #task.cancel()
         for task in tasks :
             task.cancel()
         closebot()
         client.loop.close()
     except KeyboardInterrupt:
         print("KBInt, closing")
-        task.cancel()
+        #task.cancel()
         for task in tasks :
             task.cancel()
         closebot()
         client.loop.close()
     except Exception as e :
         print("Uncaught exception, closing", repr(e))
-        task.cancel()
+        raise
+        #task.cancel()
         for task in tasks :
             task.cancel()
         closebot()
         client.loop.close()
     except BaseException as e :
         print("Uncaught base exception, closing", repr(e))
-        task.cancel()
+        #task.cancel()
         for task in tasks :
             task.cancel()
         closebot()
         client.loop.close()
     finally :
+        #task.cancel()
+        for task in tasks :
+            task.cancel()
         #Save the handler data whenever we close for any reason.
         for cont in contexts :
             if 'function' in contexts[cont] :
@@ -778,5 +799,12 @@ if __name__ == "__main__" :
             #pickle.dump(contexts,f,pickle.HIGHEST_PROTOCOL)
             #Actually write the data to the buffer
             f.write(buff)
+        #Close our ClientSession properly to avoid an annoying message.
+        #client.loop.run_until_complete(myconn.close())
+        client.loop.close() #Ensure loop is closed
     if calledstop :
         sys.exit(42) #Asked to quit - used to tell systemd to not restart
+
+if __name__ == "__main__" :
+    startupwrapper()
+    myloop.close() #Ensure loop is closed

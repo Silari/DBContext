@@ -23,6 +23,9 @@ import traceback #For exception finding.
 import datetime #For stream duration calculation
 
 parsed = {}
+lastupdate = [] #List that tracks if update succeeded - empty if not successful
+
+offlinewait = 10 #How many minutes to wait before declaring a stream offline
 
 class APIContext :
     defaultname = "template" #This must be a unique name, used to identify this context
@@ -80,15 +83,8 @@ class APIContext :
         else :
             self.name = self.defaultname
         self.savedmsg = {}
-        self.parsed = parsed
-
-    #Stub that always fails. Should be overridden.
-    async def updateparsed() :
-        return False
-
-    #Stub that always fails. Should be overridden.
-    async def agetchannel() :
-        return False
+        self.parsed = parsed #This should be replaced in the subclass
+        self.lastupdate = lastupdate #This should be replaced in the subclass
 
     #Display name of the record, used to ID the stream and in messages.
     #Should be overridden.
@@ -96,14 +92,14 @@ class APIContext :
         return 'Stream'
 
     #Function to get length of time a stream was running for.
-    async def streamtime(self,snowflake,offset=None,longtime=True) :
+    async def streamtime(self,snowflake,offset=None,longtime=False) :
         dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
         if offset :
-            dur -= datetime.timedelta(minutes=10)
+            dur -= datetime.timedelta(minutes=offset)
         hours, remainder = divmod(dur.total_seconds(),3600)
         minutes, seconds = divmod(remainder,60)
         if longtime :
-            retstr = "Stream lasted for "
+            retstr = ""
             if hours :
                 retstr += str(int(hours)) + " hour"
                 if hours == 1 :
@@ -117,29 +113,111 @@ class APIContext :
                 retstr += "s."
             return retstr
         else :
-            return "Stream lasted for {0}:{1}.".format(int(hours),int(minutes))
+            return "{0}h:{1:02d}m.".format(int(hours),int(minutes))
+
+    #Function to generate a string to say how long stream has lasted
+    async def streammsg(self,snowflake,offline=False) :
+        if offline :
+            timestr = await self.streamtime(snowflake,offlinewait)
+            retstr = "Stream lasted for "
+        else :
+            timestr = await self.streamtime(snowflake)
+            retstr = "Stream running for "
+        retstr += timestr
+        return retstr
 
     #Embed creation stub. Should be overridden, but is functional.
-    async def makeembed(self,rec) :
+    async def makeembed(self,rec,offline=False) :
         return await self.simpembed(rec)
 
     #Embed creation stub. Should be overridden, but is functional.
-    async def simpembed(self,rec) :
+    async def simpembed(self,rec,offline=False) :
         myembed = discord.Embed(title="Stream has come online!",url=self.streamurl.format(await self.getrecname(rec)))
         return myembed
+
+    #Embed creation stub. Should be overridden, but is functional.
+    async def makedetailembed(self,rec,offline=False) :
+        myembed = discord.Embed(title="Stream has come online!",url=self.streamurl.format(await self.getrecname(rec)))
+        return myembed        
 
     #Short string to announce the stream is online, with stream URL. 
     async def makemsg(self,rec) :
         return await self.getrecname(rec) + " has come online! Watch them at <" + self.streamurl.format(await self.getrecname(rec)) + ">"
 
+    #Gets the detailed information about a channel. Used for makedetailmsg.
+    #It returns the interpreted buffer. For Picarto, this is the channel record.
+    #This is pretty basic, so most classes should be able to use this. At most,
+    #override the function, call APIContext(self,channelname), then manipulate
+    #the returned buffer as you need. See piczelclass as an example of this.
+    async def agetchannel(self,channelname,headers=None) :
+        #Call our API with the getchannel URL formatted with the channel name
+        return await self.acallapi(self.channelurl.format(channelname),headers)
+
+    #Handles calling the API at the given URL and interpreting the result as JSON
+    #No changes are made to the data so it can be used by anything that needs a
+    #simple GET ran.
+    async def acallapi(self,url,headers=None) :
+        rec = False #Used for the return - default of False means it failed.
+        #header is currently only needed by twitch, where it contains the API key
+        async with self.conn.get(url,headers=headers) as resp :
+            try :
+                if resp.status == 200 : #Success
+                    buff = await resp.text()
+                    #print(buff)
+                    if buff :
+                        rec = json.loads(buff) #Interpret the received JSON
+            except aiohttp.ClientConnectionError :
+                rec = False #Low level connection problems per aiohttp docs.
+            except aiohttp.ClientConnectorError :
+                rec = False #Also a connection problem.
+            except json.JSONDecodeError : #Error in reading JSON - bad response from server?
+                rec = False #This shouldn't happen since status == 200
+        return rec
+
+    #Updates parsed dict by calling the API. Generalized enough that it works for Picarto+Piczel
+    async def updateparsed(self) :
+        updated = False
+        self.lastupdate.clear() #Update has not succeded.
+        #Only change is using self.conn.get( instead of aiohttp.request('GET',
+        try :
+            async with self.conn.get(self.apiurl) as resp :
+                if resp.status == 200 : #Success
+                    buff = await resp.text()
+                    if buff :
+                        self.parsed = {await self.getrecname(item):item for item in json.loads(buff)}
+                        updated = True #Parse finished, we updated fine.
+        #The following are low level connection problems per aiohttp docs.
+        #We can't do anything about it, so keep the update marked as failed and ignore
+        except aiohttp.ClientConnectionError :
+            pass
+        except aiohttp.ClientConnectorError :
+            pass
+        except aiohttp.ServerDisconnectedError :
+            pass
+        except aiohttp.ServerTimeoutError :
+            pass
+        except asyncio.TimeoutError :
+            pass
+        #This one is an actual problem that shouldn't happen.
+        except json.JSONDecodeError : #Error in reading JSON - bad response from server?
+            print("JSON Error in",self.name) #Log this, since it shouldn't happen.
+            pass #This shouldn't happen since status == 200, but ignore for now.
+        if updated : #We updated fine so we need to record that
+            self.lastupdate.append(updated) #Not empty means list is True, update succeeded
+        return updated
+
     #This is started as a background task by dbcontext. It can be empty but
     #should exist.
-    async def updatewrapper(self) :
+    async def updatewrapper(self,conn) :
         '''Sets a function to be run continiously ever 60 seconds until the bot is closed.'''
         #Data validation should go here if needed for your mydata dict. This is
         #CURRENTLY only called once, when the bot is first started, but this may
         #change in future versions if the client needs to be redone.
-        await self.updateparsed() #Start our first API scrape, shouldn't need client
+        self.conn = conn #Set our ClientSession reference for connections.
+        try :
+            await self.updateparsed() #Start our first API scrape, shouldn't need client
+        except Exception as error :
+            print(self.name,"initial update error",repr(error))
         #Logs our starting info for debugging/check purposes
         print("Start",self.name,len(self.parsed))
         #By the time that's done our client should be setup and ready to go.
@@ -165,9 +243,9 @@ class APIContext :
     #This sets our checker to be run every minute
     async def updatetask(self):
         if not self.client.is_closed(): #Don't run if client is closed.
-            oldlist = self.parsed
+            oldlist = self.parsed #Keep a reference to the old list
             if not await self.updateparsed() :
-                #Updating failed for some reason - empty buffer was given.
+                #Updating failed for some reason
                 #For now, just return and we'll try again in a minute.
                 return
             #print("Old Count:", len(oldlist),"Updated Count:", len(self.parsed))
@@ -188,8 +266,8 @@ class APIContext :
                     rec['DBCOffline'] += 1
                 else :
                     rec['DBCOffline'] = 1 #Has just gone offline
-                #If the channel has not been gone the last ten updates, readd it
-                if rec['DBCOffline'] < 10 :
+                #If the channel has not been gone the last offlinewait updates, readd it
+                if rec['DBCOffline'] < offlinewait :
                     self.parsed[gone] = rec
                 else :
                     #Otherwise we assume it's not a temporary disruption and add it
@@ -235,10 +313,9 @@ class APIContext :
                     channel = self.client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     if channel : #We may not have a channel if we're no longer in the guild/channel
                         oldmess = await channel.fetch_message(self.savedmsg[server][recid])
-                        #newembed = discord.Embed.from_data(oldmess.embeds[0])
-                        #New method for discord.py 1.0+
                         newembed = oldmess.embeds[0].to_dict()
                         del newembed['image'] #Delete preview as they're not online
+                        newembed['title'] = await self.streammsg(self.savedmsg[server][recid],offline=True)
                         newembed = discord.Embed.from_dict(newembed)
                         newmsg = recid + " is no longer online. Better luck next time!"
                         await oldmess.edit(content=newmsg,embed=newembed)
@@ -247,7 +324,7 @@ class APIContext :
                     channel = self.client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     oldmess = await channel.fetch_message(self.savedmsg[server][recid])
                     await oldmess.delete()
-            except KeyError as e : #Exception as e :
+            except KeyError as e :
                 print(self.name,"remove message keyerror:", repr(e))
                 pass
             except discord.HTTPException as e:
@@ -264,10 +341,11 @@ class APIContext :
                 pass
 
     async def updatemsg(self,rec) :
+        #We'll need these later, but can't make them quite yet
+        myembed = None
+        noprev = None
         mydata = self.mydata #Ease of use and speed reasons
-        myembed = await self.makeembed(rec)
-        noprev = await self.simpembed(rec)
-        recid = await self.getrecname(rec)
+        recid = await self.getrecname(rec) #Keep record name cached, we need it a lot.
         for server in mydata['AnnounceDict'][recid] :
             #If Type is simple, don't do this
             if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "simple" :
@@ -279,6 +357,10 @@ class APIContext :
             elif not (server in self.savedmsg) or not (recid in self.savedmsg[server]) :
                 pass
             else :
+                #If we haven't made the embeds yet, do it now using the msg ID
+                if not myembed : #This lets us only make the embed needed ONCE for each stream
+                    myembed = await self.makeembed(rec,self.savedmsg[server][recid])
+                    noprev = await self.simpembed(rec,self.savedmsg[server][recid])
                 #Try and grab the old message we saved when posting originally
                 oldmess = None
                 try :
@@ -470,6 +552,8 @@ class APIContext :
                         msg += mydata["Servers"][message.guild.id]['MSG'] + " messages."
                 except KeyError :
                     msg += "edit messages."
+                if not self.lastupdate :
+                    msg += "\n**Last attempt to update API failed.**"
                 await message.channel.send(msg)
             elif command[0] == 'add' :
                 if not command[1] in mydata["AnnounceDict"] :
