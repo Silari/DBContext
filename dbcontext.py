@@ -1,20 +1,58 @@
 #discord bot with module based functionality.
 #Now based on discord.py version 1.2.2
 
-#Core TODO list:
-#IF I END UP ALLOWING MULTIPLE INSTANCES TO SHARE ONE UPDATETASK THEN I NEED TO
-#CORRECT USAGE OF PARSED TO BE .CLEAR AND .UPDATE INSTEAD OF REPLACING OUTRIGHT.
-#This would mean redoing updatetask to deepcopy the old parsed to a new one to
-#save it instead.
 
+#Todo before 0.7:
+#Check that all code works. Double check that exiting properly saves and has no
+#errors - were tasks that weren't cancelled. Changed code to have closebot loop
+#a quick asyncio.sleep to hopefully give them time to finish up.
+##May need to move the except code into the async function startbot and clean up
+##there since it's still inside the loop.
+##Works fine on debug quit, but errors when closed with systemctl, probably also
+##with ctrl+C
+
+#Deleting a channel should delete announcemessage if that option has been set.
+#It should definitely remove it from savedmsg!
+#DONE
+
+
+#Todo for 0.8:
+#If getting the message fails for a savedmsg, clear it? Need to find out what
+#results from get message for sure means it no longer exists. (or at least is no
+#longer accessible for the bot)
+
+#Clean up various uses of server to guild, to match discord.py/Discord usage
+#instead of server.
+
+#Need to account for channel overrides in list. Either put a marker on them saying
+#that an OR exists and add a command to view them, or put them directly in list.
+
+#Add a module named Global for handling global settings - pretty simple data layout
+#ServerID->['Channel'],['MSG'],['Type'], etc.
+#Need to add a way for modules to READ but not WRITE this - getglobal(globalname)?
+
+#Similar to parsechannel, add a getoption(Type) to resolve an option setting
+#Probably add a defaultoptions dict to basecontext to control what to return
+#when there isn't one set. defaultopts = {'Type':'default','MSG':'edit'}
+#Again, this can handle getting the global value via getglobal if needed.
+#Done, apart from global.
+
+#Add in optionor streamname <options> for overriding options per stream?
+
+#Need a way to stop ALL announcements on a server. Used to just remove listen
+#channel but that's no guarantee since channel overrides will still work. So
+#then I could add a stop/start command that takes the entire servers Listens tree
+#and moves it into 'stopped' or something
+##No that won't work because it'd still be in the streams Servers info so it'd
+##still be announced. Instead, maybe an ['Options']['Stop'] that getchannel would
+##check - if set return None so no message gets sent. That should work.
+
+#General TODO list/ideas:
 #ADD NotImplementedError TO FUNCTIONS NEEDING TO BE OVERRIDDEN!
 #Not sure there are any of these left tbh
 
 #I've seen a few cases of offline streams not getting edited to offline.
 ##Maybe some error in removemsg is causing it but getting hidden?
-
-#If we add a channel we're already watching, does it resend an announcement?
-#If so, stop that. Check for saved ID.
 
 #maybe have it announce online channels if it hasn't announced them before -
 #ie was offline when they came online, rather than only when they first come online
@@ -31,7 +69,7 @@
 ###Do this via reacting to a message sent by the bot. Can unreact to unset?
 
 #0.6 Idea:
-#Rewrite context modules to be class based
+#Rewrite context modules to be class based - DONE
 #This would allow for loading multiple copies of a class, just use a different
 #name. The API calls and such would still need to be shared though! Maybe check
 #if parsed is already filled or if non-default don't run, just use the already
@@ -39,13 +77,11 @@
 #module itself, so each class would be able to access it just fine. Would need to
 #keep a separate copy inside each class instance though so it'd know what changed
 #unless I rewrite the module to keep the changes.
-
-#Ok what if class based, with a default to an overall set of options if not set?
-#If I make fallbacks that might allow setting different channels for different
-#listens even within the same module. <Listen instance>-><context instance>-><discord bot options>
-#Honestly it'd be easier to just set the listen instance to the context/discordbot channel
-#Only downside would be changing the discordbot channel afterwards wouldn't change all the listens
-#unless it always overwrites the old channel with new channel, which could be a minor issue.
+#IF I END UP ALLOWING MULTIPLE INSTANCES TO SHARE ONE UPDATETASK THEN I NEED TO
+#CORRECT USAGE OF PARSED TO BE .CLEAR AND .UPDATE INSTEAD OF REPLACING OUTRIGHT.
+#This would mean redoing updatetask to deepcopy the old parsed to a new one to
+#save it instead.
+#Much less needed now due to channel overrides
 
 #@Bot announce - announces here for all?
 #@Bot accounce <channel> - announce in <channel> for all?
@@ -53,25 +89,35 @@
 #All modules TODO
 #Now that options exist, add option to ignore Adult streams in announcements.
 ##Not everything may support that - not a priority anyway - don't watch em if you don't want to see em.
-#Option to @here
-#Maybe redo options to be a ['Servers'][server]['Options'] = set, includes all options in one group.
-##That would make it more difficult to remove conflicting options though?
+
+#Option to @here - probably better handled by channel notifications user side
+
 #Redo detail announce so that it responds in the channel it was requested in?
 
 version = 0.7 #Current bot version
 changelog = {}
 changelog["0.7"] = '''0.7 from 0.6 Changelog:
 GENERAL
+Added stream length to edited announcement messages.
+listen command changed to allow mentioning a channel to make it the announcement channel. If none given, it is still the channel the command was given in.
+add command now allows mentioning a channel after the stream name to make that stream announce in the mentioned channel, rather than the default listen channel.
+addmult also now allows mentioning a channel to set a channel override for all the channels given. It can be anywhere in the command.
+addmult now strips a trailing comma from channel names if present, to allow for copy/pasting the output of the list command without modification.
+remove and removemult commands now deletes/stops editing current announcement for the deleted stream.
+Fixed an issue where streams were marked as offline before the proper wait time.
 Quitting using the debug quit command now exits with status code 42, to allow for checking of intentional stoppage.
-Updates before declaring a stream offline moved to variable, as it's used in multiple places now.
 API based modules now track if the last API update succeeded. Failure will be noted in the list command.
+BACKEND IMPROVEMENTS
 API modules all share a ClientSession instance.
 API calls have more stringent timeouts for server responses.
 Added acallapi, async function to get the given URL, with optional headers. This is used to centralize API handling.
   All API calls in APIContext, Picartoclass, Piczelclass, and Twitchclass use acallapi now.
+Added resolvechannel to APIContext, which determines what channel to send a message to based on server, channel overrides, and eventually global settings.  
 updateparsed added to APIContext, used by Picarto+Piczel. Twitch still overrides.
 agetchannel added to APIContext, and result modified by subclasses as necessary.
-Added stream length to edited announcement messages.
+# of updates before declaring a stream offline moved to variable, as it's used in multiple places now.
+removemsg in APIContext now accepts a list of servers to remove from
+Bot no longer attempts to split message until all checks are true - very minor optimization.
 '''
 changelog["0.6"] = '''0.6 from 0.5 Changelog:
 GENERAL
@@ -169,8 +215,9 @@ myloop = asyncio.get_event_loop()
 client = discord.Client(loop=myloop)
 #Invite link for the PicartoBot. Allows adding to a server by a server admin.
 #This is the official version of the bot, running the latest stable release.
-invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268913728"
+#The old invite does not have manage roles permission, needed for the manage module
+oldinvite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
 #URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
@@ -518,14 +565,17 @@ async def debughandler(command, message) :
     elif command[0] == 'quit' :
         global calledstop
         calledstop = True
-        await client.logout() #closebot()
-        client.loop.close()
+        await client.logout()
+        #client.loop.close() #This is closed later
     elif command[0] == 'checkupdate' :
         print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
-    elif command[0] == 'typing' :
-        await asyncio.sleep(6)
-        await message.channel.send("Wait done.")
-        
+    elif command[0] == 'checkmentions' :
+        print(command,":",message)
+        print(message.channel_mentions)
+        if len(message.channel_mentions) == 1 :
+            print(command[1],message.channel_mentions[0],command[1] == message.channel_mentions[0])
+        await message.channel.send("Derp")
+
 newcontext("debug",debughandler,{})
 
 #Sends a message to all servers
@@ -573,8 +623,6 @@ def sendmessage(channel,chanid) :
 #users keep those roles if they've given him money.
 @client.event
 async def on_member_update(before, after) :
-    #print(repr(before))
-    #print(repr(after))
     if before.guild.id != 253682347420024832 :
         return
     print(repr(before.roles))
@@ -587,21 +635,16 @@ async def on_member_update(before, after) :
     addspon = False
     addpat = False
     if discord.utils.find(lambda m: m.id == 256408573397958656, before.roles) :
-        #print("user had Trixsponsor")
         if not discord.utils.find(lambda m: m.id == 256408573397958656, after.roles) :
-            #print("user no longer has trixsponsor")
             addspon = True
     if discord.utils.find(lambda m: m.id == 336063609815826444, before.roles) :
-        #print("user had PWDpatron")
         if not discord.utils.find(lambda m: m.id == 336063609815826444, after.roles) :
             #print("user no longer has PWDpatron")
             addpat = True
     if addspon :
-        #print("Adding Trixsponsor")
         userrole = discord.utils.find(lambda m: m.id == 256408573397958656, after.guild.roles)
         await after.add_roles(userrole,reason="Re-adding removed patreon role")
     if addpat :
-        #print("user had PWDpatron")
         userrole = discord.utils.find(lambda m: m.id == 336063609815826444, after.guild.roles)
         await after.add_roles(userrole,reason="Re-adding removed patreon role")
     
@@ -632,8 +675,8 @@ async def on_message(message):
             #print(hasrole, item.name, client.user.name)
     #The bot listens to anyone who is an admin, or has a role named after the bot
     if message.author.guild_permissions.administrator or hasrole :
-        command = message.content.split()
         if message.content.startswith('<@' + str(client.user.id) + ">") :
+            command = message.content.split()
             #print("Listening for message", len(command))
             if len(command) < 2 :
                 msg = client.user.name + " bot version " + str(version)
@@ -682,6 +725,7 @@ def closebot() :
             pass
         except asyncio.CancelledError:
             pass
+    client.loop.run_until_complete(asyncio.sleep(0.25))
 
 async def savecontexts() :
     try :
@@ -750,6 +794,7 @@ async def startbot() :
         #print("Starting task for:",modname.__name__)
         tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
     await client.start(token)
+    await myconn.close()
     
 def startupwrapper() :
     try :
@@ -772,23 +817,20 @@ def startupwrapper() :
         client.loop.close()
     except Exception as e :
         print("Uncaught exception, closing", repr(e))
-        raise
-        #task.cancel()
         for task in tasks :
             task.cancel()
         closebot()
         client.loop.close()
     except BaseException as e :
         print("Uncaught base exception, closing", repr(e))
-        #task.cancel()
         for task in tasks :
             task.cancel()
         closebot()
         client.loop.close()
     finally :
-        #task.cancel()
         for task in tasks :
             task.cancel()
+        closebot()
         #Save the handler data whenever we close for any reason.
         for cont in contexts :
             if 'function' in contexts[cont] :
@@ -802,8 +844,10 @@ def startupwrapper() :
         #Close our ClientSession properly to avoid an annoying message.
         #client.loop.run_until_complete(myconn.close())
         client.loop.close() #Ensure loop is closed
+    if not calledstop :
+        raise Exception("Bot ended without being explicitly stopped!")
     if calledstop :
-        sys.exit(42) #Asked to quit - used to tell systemd to not restart
+        print("Called quit") #sys.exit(42) #Asked to quit - used to tell systemd to not restart
 
 if __name__ == "__main__" :
     startupwrapper()

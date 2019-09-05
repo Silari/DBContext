@@ -76,7 +76,9 @@ class TwitchContext(basecontext.APIContext) :
         detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + channelname,headers=twitchheader)
         if not detchan :
             return False
-        return detchan['data'][0]
+        if detchan['data'] :
+            return detchan['data'][0]
+        return False
 
     #Gets the detailed information about a running stream
     async def agetchannel(self,channelname,headers=None) :
@@ -156,5 +158,3 @@ class TwitchContext(basecontext.APIContext) :
             myembed.add_field(name="Viewers:",value=rec['view_count'])
             myembed.set_thumbnail(url=rec['profile_image_url'])
         return myembed
-        
-        

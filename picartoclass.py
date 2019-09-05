@@ -10,26 +10,6 @@ import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 parsed = {} #Dict with key == 'name'
 lastupdate = [] #Did the last update succeed?
 
-#Keep a dict of channels to search for, list of servers that want that info
-#AnnounceDict
-#   |-"JazzyZ401"
-#       |JazzySpeaksThingy
-#   |-"Krypt"
-#       |-Glittershell
-#       |-PonyPervingParty
-
-#Keep a dict of servers, that holds the dict of options
-#Servers
-#   |-"JazzySpeaksThingy"
-#       |"AnnounceChannel": "#announcements"
-#       |"Listens": set()
-#       |"Users": set()
-#   |-"Glittershell"
-#       |"AnnounceChannel": "#livestream"
-#       |"Listens": set()
-#       |"Users": set()
-#       |"Here": true
-
 #Old non-async method. Kept for debugging.
 def connect() :
     global parsed
@@ -62,7 +42,7 @@ class PicartoContext(basecontext.APIContext) :
         basecontext.APIContext.__init__(self,instname)
         #Our parsed is going to be the global parsed in our module, instead of the
         #basecontext parsed. This gets shared with ALL instances of this class.
-        #Primarily this will sharing API response data with all instances.
+        #Primarily this will allow sharing API response data with all instances.
         self.parsed = parsed #Removing any of this isn't recommended.
         self.lastupdate = lastupdate #Tracks if last API update was successful.
         #Adding stuff below here is fine, obviously.
