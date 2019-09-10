@@ -9,12 +9,15 @@ import json #Interpreting json results - updateparsed most likely needs this.
 import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 
-parsed = {} #Dict with key == 'user_name'
+parsed = {} #Dict with key == 'user_name', filled by basecontext.updateparsed
+lastupdate = [] #Did the last update succeed?
 
 import basecontext
 class TemplateContext(basecontext.APIContext) :
     defaultname = "template" #This is used to name this context and is the command
-    streamurl = #Fill this with a string, gets called as self.streamurl.format(await self.getrecname(rec)) generally
+    streamurl = #URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecname(rec))
+    apiurl = #URL to call to update the list of online streams, used by updateparsed
+    channelurl = #URL to call to get detailed information about a specific channel, used by agetchannel
 
     def __init__(self,instname=None) :
         #Init our base class
@@ -23,15 +26,20 @@ class TemplateContext(basecontext.APIContext) :
         #basecontext parsed. This gets shared with ALL instances of this class.
         #Primarily this will sharing API response data with all instances.
         self.parsed = parsed #Removing any of this isn't recommended.
+        self.lastupdate = lastupdate #Tracks if last API update was successful.
         #Adding stuff below here is fine, obviously.
 
     #Called to update the API data by basecontext's updatetask. When it's finished
     #parsed should have the current list of online channels.
     async def updateparsed(self) :
+        #basecontexts version can handle most cases, now that it's been generalized
+        #If you don't need any special handling of the call or output, can be deleted
 
     #Gets the detailed information about a channel. Used for makedetailmsg.
     #It returns a channel record.
     async def agetchannel(self,channelname) :
+        #basecontexts version can handle most cases now that it's been generalized
+        #If you don't need any special handling of the call or output, can be deleted
 
     async def getrecname(self,rec) :
         #Should return the name of the record used to uniquely id the stream.
@@ -40,7 +48,7 @@ class TemplateContext(basecontext.APIContext) :
         return rec[=]
 
     #The embed used by the default message type. Same as the simple embed except
-    #that was add on a preview of the stream.
+    #that we add on a preview of the stream.
     async def makeembed(self,rec) :
         #You can remove this function and baseclass will just use the simpembed
         #Simple embed is the same, we just need to add a preview image. Save code

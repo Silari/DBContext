@@ -7,27 +7,8 @@ import asyncio #Use this for sleep, not time.sleep.
 import datetime #Interpret date+time results for lastonline
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 
-parsed = {} #Dict with key == 'user_name'
-
-#Keep a dict of channels to search for, list of servers that want that info
-#AnnounceDict
-#   |-"JazzyZ401"
-#       |JazzySpeaksThingy
-#   |-"Krypt"
-#       |-Glittershell
-#       |-PonyPervingParty
-
-#Keep a dict of servers, that holds the dict of options
-#Servers
-#   |-"JazzySpeaksThingy"
-#       |"AnnounceChannel": "#announcements"
-#       |"Listens": set()
-#       |"Users": set()
-#   |-"Glittershell"
-#       |"AnnounceChannel": "#livestream"
-#       |"Listens": set()
-#       |"Users": set()
-#       |"Here": true
+parsed = {} #Dict with key == 'name'
+lastupdate = [] #Did the last update succeed?
 
 #Old non-async method. Kept for debugging.
 def connect() :
@@ -51,70 +32,46 @@ def getchannel(channelname) :
 
 import basecontext
 class PicartoContext(basecontext.APIContext) :
-    defaultname = "picarto"
-    streamurl = "https://picarto.tv/{0}"
+    defaultname = "picarto" #This is used to name this context and is the command to call it. Must be unique.
+    streamurl = "https://picarto.tv/{0}" #URL for going to watch the stream
+    apiurl = "https://api.picarto.tv/v1/online?adult=true&gaming=true" #URL to call to find online streams
+    channelurl = "https://api.picarto.tv/v1/channel/name/{0}" #URL to call to get information on a single channel
 
     def __init__(self,instname=None) :
         #Init our base class
         basecontext.APIContext.__init__(self,instname)
-        #Our parsed is going to be the global picartoclass parsed, instead of the
+        #Our parsed is going to be the global parsed in our module, instead of the
         #basecontext parsed. This gets shared with ALL instances of this class.
-        self.parsed = parsed
-
-    #Called to update the API data by basecontext's updatetask. When it's finished
-    #parsed should have the current list of online channels.
-    async def updateparsed(self) :
-        updated = False
-        async with aiohttp.request('GET',"https://api.picarto.tv/v1/online?adult=true&gaming=true") as resp :
-            try :
-                buff = await resp.text()
-                #resp.close()
-                if buff :
-                    self.parsed = {item['name']:item for item in json.loads(buff)}
-                    updated = True
-            except aiohttp.ClientConnectionError :
-                pass #Low level connection problems per aiohttp docs. Ignore for now.
-            except aiohttp.ClientConnectorError :
-                pass #Also a connection problem. Ignore for now.
-            except json.JSONDecodeError :
-                pass #Error in reading JSON - bad response from server. Ignore for now.
-        return updated
-
-    #Gets the detailed information about a channel. Used for makedetailmsg.
-    #It returns a channel record.
-    async def agetchannel(self,channelname) :
-        rec = False
-        async with aiohttp.request('GET',"https://api.picarto.tv/v1/channel/name/" + channelname) as resp :
-            try :
-                buff = await resp.text()
-                #resp.close()
-                if buff :
-                    rec = json.loads(buff)
-            except :
-                rec = False
-        return rec
+        #Primarily this will allow sharing API response data with all instances.
+        self.parsed = parsed #Removing any of this isn't recommended.
+        self.lastupdate = lastupdate #Tracks if last API update was successful.
+        #Adding stuff below here is fine, obviously.
 
     async def getrecname(self,rec) :
         return rec['name']
 
-    async def makeembed(self,rec) :
-        #Simple embed is the same, we just need to add a preview image. Save code
-        myembed = await self.simpembed(rec)
+    async def makeembed(self,rec,snowflake=None,offline=False) :
+        #Simple embed is the same, we just need to add a preview image.
+        myembed = await self.simpembed(rec,snowflake,offline)
         myembed.set_image(url=rec['thumbnails']['web'])
         return myembed
 
-    async def simpembed(self,rec) :
+    async def simpembed(self,rec,snowflake=None,offline=False) :
         description = rec['title']
         value = "Multistream: No"
         if rec['multistream'] :
             value = "Multistream: Yes"
-        noprev = discord.Embed(title=rec['name'] + " has come online!",url=self.streamurl.format(rec['name']),description=description)
+        if not snowflake :
+            embtitle = rec['name'] + " has come online!"
+        else :
+            embtitle = await self.streammsg(snowflake,offline)
+        noprev = discord.Embed(title=embtitle,url=self.streamurl.format(rec['name']),description=description)
         noprev.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Viewers: " + str(rec['viewers']),inline=True)
         noprev.add_field(name=value,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
         noprev.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
         return noprev
 
-    async def makedetailembed(self,rec) :
+    async def makedetailembed(self,rec,snowflake=None,offline=False) :
         description = rec['title']
         multstring = ""
         if rec["multistream"] :
