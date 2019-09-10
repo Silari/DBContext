@@ -37,7 +37,7 @@
 #Again, this can handle getting the global value via getglobal if needed.
 #Done, apart from global.
 
-#Add in optionor streamname <options> for overriding options per stream?
+#Add in "optionor streamname <options>" for overriding options per stream?
 
 #Need a way to stop ALL announcements on a server. Used to just remove listen
 #channel but that's no guarantee since channel overrides will still work. So
@@ -62,6 +62,9 @@
 ###On the other hand, doing it that way would mean that I could save the savedmsgs
 ###onto disk in case of shutdown, then on load match those back up automatically
 ###to still running streams/edit them to offline if needed. That'd be nice.
+#Maybe a way to permalink a message to a stream so that it always edits that one
+#message instead, never making a new one. Seems kinda pointless, but easy enough
+#New option - 'single', that says to do this?
 
 #Holdover from 0.5:
 #Add role management permission - DONE
@@ -106,6 +109,7 @@ addmult now strips a trailing comma from channel names if present, to allow for 
 remove and removemult commands now deletes/stops editing current announcement for the deleted stream.
 Fixed an issue where streams were marked as offline before the proper wait time.
 Quitting using the debug quit command now exits with status code 42, to allow for checking of intentional stoppage.
+  Bot exit due to other reasons (SIGINT/SIGTERM/etc) is handled better, but still needs work.
 API based modules now track if the last API update succeeded. Failure will be noted in the list command.
 BACKEND IMPROVEMENTS
 API modules all share a ClientSession instance.
@@ -710,14 +714,14 @@ async def on_ready() :
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
 def closebot() :
-    client.loop.run_until_complete(client.logout())
+    myloop.run_until_complete(client.logout())
     for t in asyncio.Task.all_tasks(loop=client.loop):
         if t.done():
             t.exception()
             continue
         t.cancel()
         try:
-            client.loop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
+            myloop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
             t.exception()
         except asyncio.InvalidStateError:
             pass
@@ -725,11 +729,32 @@ def closebot() :
             pass
         except asyncio.CancelledError:
             pass
-    client.loop.run_until_complete(asyncio.sleep(0.25))
+    myloop.run_until_complete(asyncio.sleep(0.25))
+
+async def aclosebot() :
+    await client.logout()
+    for t in asyncio.Task.all_tasks(loop=client.loop):
+        if t.done(): #Task is finished, we can skip it
+            #t.exception() #This would show the exception, but we don't care
+            continue
+        t.cancel() #Cancels the task by raising CancelledError
+        try:
+            myloop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
+            t.exception()
+        except asyncio.InvalidStateError:
+            pass
+        except asyncio.TimeoutError:
+            pass
+        except asyncio.CancelledError:
+            pass
+    #Wait for a small delay to allow for all tasks to finish
+    await asyncio.sleep(0.25)
 
 async def savecontexts() :
     try :
         newcont = copy.deepcopy(contexts)
+    except asyncio.CancelledError : #Task was cancelled, so quit.
+        return
     except Exception as e :
         print("Error in deepcopy:",repr(e))
         #print(contexts)
@@ -740,6 +765,8 @@ async def savecontexts() :
         with open('dbcontexts.bin',mode='wb') as f:
                 #Actually write the data to the buffer
                 f.write(buff)
+    except asyncio.CancelledError : #Task was cancelled, so quit.
+        return
     except Exception as e :
         print("error in savecontext",repr(e))
         #print(newcont)
@@ -766,6 +793,8 @@ async def savetask() :
                 #If there's some kind of error, we mostly ignore it and try again later
                 try :
                     await savecontexts()
+                except asyncio.CancelledError : #Task was cancelled, so quit.
+                    return
                 except Exception as e :
                     print("Error in savetask:", repr(e))
         except asyncio.CancelledError :
@@ -775,9 +804,12 @@ import signal
 #This section should cause the bot to shutdown and exit properly on SIGTERM
 #It should cause the threads to shut down, which ends client.run and then runs
 #the finally block below to save the data.
+#It's recommended to send SIGINT instead - systemd can do this if you're on
+#Linux and using it to start/stop the bot. Ctrl+C also sends SIGINT.
+#SIGINT is handled automatically by Python and works extremely well.
 signal.signal(signal.SIGTERM,closebot)
 
-async def makeclient() :
+async def makesession() :
     #Setup our aiohttp.ClientSession to pass to our modules that need it
     mytime = aiohttp.ClientTimeout(total=60)
     #Note that individual requests CAN still override this, but for most APIs it
@@ -786,14 +818,29 @@ async def makeclient() :
     return myconn
 
 async def startbot() :
-    myconn = await makeclient()
+    myconn = await makesession()
     #Saves our context data periodically
     tasks.append(client.loop.create_task(savetask()))
     #Start our context modules' updatewrapper task, if they had one when adding.
     for modname in taskmods :
         #print("Starting task for:",modname.__name__)
         tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
-    await client.start(token)
+    try :
+        await client.start(token)
+    #On various kinds of errors, close our background tasks, the bot, and the loop
+    except SystemExit :
+        print("SystemExit or KBInt, closing")
+        #task.cancel()
+        for task in tasks :
+            task.cancel()
+        await aclosebot()
+    except KeyboardInterrupt :
+        print("SystemExit or KBInt, closing")
+        #task.cancel()
+        for task in tasks :
+            task.cancel()
+        await aclosebot()
+        return
     await myconn.close()
     
 def startupwrapper() :
@@ -801,37 +848,34 @@ def startupwrapper() :
         #client.run(token)
         myloop.run_until_complete(startbot())
     #On various kinds of errors, close our background tasks, the bot, and the loop
-    except SystemExit:
-        print("SystemExit, closing")
-        #task.cancel()
-        for task in tasks :
-            task.cancel()
-        closebot()
-        client.loop.close()
-    except KeyboardInterrupt:
-        print("KBInt, closing")
-        #task.cancel()
-        for task in tasks :
-            task.cancel()
-        closebot()
-        client.loop.close()
     except Exception as e :
+        #These we want to note so we can catch them where it happened
         print("Uncaught exception, closing", repr(e))
-        for task in tasks :
-            task.cancel()
-        closebot()
-        client.loop.close()
+##        for task in tasks :
+##            task.cancel()
+##        closebot()
+##        client.loop.close()
     except BaseException as e :
-        print("Uncaught base exception, closing", repr(e))
-        for task in tasks :
-            task.cancel()
-        closebot()
-        client.loop.close()
+        #There shouldn't be many of these, as SystemExit and KBInt are the two big ones
+        #so note them so we can see what we might need to do specifically for them.
+        #OR it could completely ignore our try:catch in startbot and immediately go
+        #here. OK then. 
+        #print("Uncaught base exception, closing", repr(e))
+        pass
+##        for task in tasks :
+##            task.cancel()
+##        closebot()
+##        client.loop.close()
     finally :
-        for task in tasks :
-            task.cancel()
-        closebot()
+        try :
+            for task in tasks :
+                task.cancel()
+            closebot()
+        except Exception as e :
+            #print(repr(e))
+            pass
         #Save the handler data whenever we close for any reason.
+        #Old and shouldn't be needed anymore - functions are stored separately now
         for cont in contexts :
             if 'function' in contexts[cont] :
                 del contexts[cont]['function']
@@ -844,11 +888,12 @@ def startupwrapper() :
         #Close our ClientSession properly to avoid an annoying message.
         #client.loop.run_until_complete(myconn.close())
         client.loop.close() #Ensure loop is closed
+    #Did someone use the debug quit option? If not, raise an error
     if not calledstop :
         raise Exception("Bot ended without being explicitly stopped!")
+    #If so, print a message for logging purposes
     if calledstop :
-        print("Called quit") #sys.exit(42) #Asked to quit - used to tell systemd to not restart
+        print("Called quit")
 
 if __name__ == "__main__" :
     startupwrapper()
-    myloop.close() #Ensure loop is closed

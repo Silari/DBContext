@@ -134,5 +134,3 @@ class PiczelContext(basecontext.APIContext) :
         myembed.set_image(url=thumburl)
         myembed.set_thumbnail(url=rec['user']['avatar']['avatar']['url'])
         return myembed
-        
-        

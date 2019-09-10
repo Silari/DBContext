@@ -217,27 +217,27 @@ class APIContext :
     async def acallapi(self,url,headers=None) :
         rec = False #Used for the return - default of False means it failed.
         #header is currently only needed by twitch, where it contains the API key
-        async with self.conn.get(url,headers=headers) as resp :
-            try :
+        try :
+            async with self.conn.get(url,headers=headers) as resp :
                 if resp.status == 200 : #Success
                     buff = await resp.text()
                     #print(buff)
                     if buff :
                         rec = json.loads(buff) #Interpret the received JSON
-            #Ignore connection errors, and we can try again next update
-            except aiohttp.ClientConnectionError :
-                rec = False #Low level connection problems per aiohttp docs.
-            except aiohttp.ClientConnectorError :
-                rec = False #Also a connection problem.
-            except aiohttp.ServerDisconnectedError :
-                rec = False #Also a connection problem.
-            except aiohttp.ServerTimeoutError :
-                rec = False #Also a connection problem.
-            except asyncio.TimeoutError :
-                rec = False #Exceeded the timeout we set - 60 seconds.
-            except json.JSONDecodeError : #Error in reading JSON - bad response from server?
-                print("JSON Error in",self.name) #Log this, since it shouldn't happen.
-                rec = False #This shouldn't happen since status == 200
+        #Ignore connection errors, and we can try again next update
+        except aiohttp.ClientConnectionError :
+            rec = False #Low level connection problems per aiohttp docs.
+        except aiohttp.ClientConnectorError :
+            rec = False #Also a connection problem.
+        except aiohttp.ServerDisconnectedError :
+            rec = False #Also a connection problem.
+        except aiohttp.ServerTimeoutError :
+            rec = False #Also a connection problem.
+        except asyncio.TimeoutError :
+            rec = False #Exceeded the timeout we set - 60 seconds.
+        except json.JSONDecodeError : #Error in reading JSON - bad response from server?
+            print("JSON Error in",self.name) #Log this, since it shouldn't happen.
+            rec = False #This shouldn't happen since status == 200
         return rec
 
     #Updates parsed dict by calling the API. Generalized enough that it works for Picarto+Piczel
@@ -271,7 +271,7 @@ class APIContext :
 ##            pass #This shouldn't happen since status == 200, but ignore for now.
         buff = await self.acallapi(self.apiurl)
         if buff : #Any errors would return False instead of a buffer
-            self.parsed = {await self.getrecname(item):item for item in json.loads(buff)}
+            self.parsed = {await self.getrecname(item):item for item in buff}
             updated = True #Parse finished, we updated fine.
         if updated : #We updated fine so we need to record that
             self.lastupdate.append(updated) #Not empty means list is True, update succeeded
@@ -414,6 +414,7 @@ class APIContext :
                 #since you can always delete/edit your own stuff, but JIC.
                 pass
             #Remove the msg from the list, we won't update it anymore.
+            #This still happens for static messages, which aren't edited or removed
             try : #They might not have a message saved, ignore that
                 del self.savedmsg[server][recid]
             except KeyError :
