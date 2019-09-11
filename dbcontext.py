@@ -629,8 +629,8 @@ def sendmessage(channel,chanid) :
 async def on_member_update(before, after) :
     if before.guild.id != 253682347420024832 :
         return
-    print(repr(before.roles))
-    print(repr(after.roles))
+    #print(repr(before.roles))
+    #print(repr(after.roles))
     #If roles are the same, do nothing
     if before.roles == after.roles :
         return
