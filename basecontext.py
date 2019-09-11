@@ -99,6 +99,13 @@ class APIContext :
     async def getrecname(self,rec) :
         return 'Stream'
 
+    #Get saved message id
+    async def getmsgid(self,guildid,recid) :
+        try :
+            return self.savedmsg[guildid][recid]
+        except KeyError :
+            return False
+
     #Get the channel to announce.
     async def resolvechannel(self,guildid,rec=None,channelid=None) :
         #guildid = int: snowflake of guild
@@ -380,8 +387,10 @@ class APIContext :
             serverlist = mydata['AnnounceDict'][recid]
         for server in serverlist :
             try :
+                #Try to retreive our saved id
+                msgid = await self.getmsgid(server,recid)
                 #We don't have a saved message for this, so do nothing.
-                if not (server in self.savedmsg) or not (recid in self.savedmsg[server]) :
+                if not msgid :
                     pass
                 #Either the MSG option is not set, or is set to edit, which is the default
                 #We should edit the message to say they're not online
@@ -389,7 +398,7 @@ class APIContext :
                     #channel = self.client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     channel = await self.resolvechannel(server,recid)
                     if channel : #We may not have a channel if we're no longer in the guild/channel
-                        oldmess = await channel.fetch_message(self.savedmsg[server][recid])
+                        oldmess = await channel.fetch_message(msgid)
                         newembed = oldmess.embeds[0].to_dict()
                         del newembed['image'] #Delete preview as they're not online
                         newembed['title'] = await self.streammsg(self.savedmsg[server][recid],offline=True)
@@ -401,17 +410,24 @@ class APIContext :
                     #channel = self.client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     channel = await self.resolvechannel(server,recid)
                     if channel :
-                        oldmess = await channel.fetch_message(self.savedmsg[server][recid])
+                        oldmess = await channel.fetch_message(msgid)
                         await oldmess.delete()
             except KeyError as e :
+                #We should've prevented any of these, so note that it happened.
                 print(self.name,"remove message keyerror:", repr(e))
                 pass
-            except discord.HTTPException as e:
-                #HTTP error running the edit/delete command. Possibly no msg anymore
-                pass
-            except discord.Forbidden as e:
+            except discord.Forbidden :
                 #We are not permitted to edit/delete message. This SHOULDN'T ever happen
                 #since you can always delete/edit your own stuff, but JIC.
+                pass
+            except discord.NotFound :
+                #Only the message finding should trigger this, in which case nothing
+                #to do except ignore it. It was probably deleted.
+                pass
+            except discord.HTTPException as e :
+                #HTTP error running the edit/delete command. The above two should've
+                #caught the obvious ones, so lets log this to see what happened.
+                print(self.name,"remove message keyerror:", repr(e))
                 pass
             #Remove the msg from the list, we won't update it anymore.
             #This still happens for static messages, which aren't edited or removed
@@ -429,14 +445,13 @@ class APIContext :
         for server in mydata['AnnounceDict'][recid] :
             #If Type is simple, don't do this
             if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "simple" :
-                pass
+                continue
             #If MSG option is static, we don't update.
             elif "MSG" in mydata["Servers"][server] and mydata["Servers"][server]["MSG"] == "static" :
-                pass
+                continue
             #If we don't have a saved message, we can't update.
-            elif not (server in self.savedmsg) or not (recid in self.savedmsg[server]) :
-                pass
-            else :
+            msgid = await self.getmsgid(server,recid)
+            if msgid :
                 #If we haven't made the embeds yet, do it now using the msg ID
                 if not myembed : #This lets us only make the embed needed ONCE for each stream
                     myembed = await self.makeembed(rec,self.savedmsg[server][recid])
@@ -452,9 +467,16 @@ class APIContext :
                     #print("1",repr(e))
                     pass #Server no longer has an announce channel set, or message
                     #wasn't sent for this channel. Possibly bot was offline.
+                except discord.NotFound :
+                    #The message wasn't found, probably deleted. Remove the saved id
+                    try :
+                        print("Removing message",server,recid,self.savedmsg[server][recid])
+                        del self.savedmsg[server][recid]
+                    except :
+                        pass
+                    pass
                 except discord.HTTPException as e:
                     #General HTTP errors from command. 
-                    #Can happen if message was deleted - NOT FOUND status code 404
                     #print("2",repr(e))
                     pass
                 if oldmess :

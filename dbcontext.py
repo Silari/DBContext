@@ -2,27 +2,30 @@
 #Now based on discord.py version 1.2.2
 
 
-#Todo before 0.7:
-#Check that all code works. Double check that exiting properly saves and has no
-#errors - were tasks that weren't cancelled. Changed code to have closebot loop
-#a quick asyncio.sleep to hopefully give them time to finish up.
-##May need to move the except code into the async function startbot and clean up
-##there since it's still inside the loop.
-##Works fine on debug quit, but errors when closed with systemctl, probably also
-##with ctrl+C
-
-#Deleting a channel should delete announcemessage if that option has been set.
-#It should definitely remove it from savedmsg!
-#DONE
-
-
 #Todo for 0.8:
 #If getting the message fails for a savedmsg, clear it? Need to find out what
 #results from get message for sure means it no longer exists. (or at least is no
 #longer accessible for the bot)
+##raises discord.errors.NotFound, Forbidden might be possible if not in guild/channel
+##but we have checks in place for that already.
+###DONE, CHECK
+
+#Allow mentioning a channel for manage to create the PicartoWatch role with the
+#needed permission to read+talk in that channel
+
+#manage checks that the bot has manage_roles permission, but not that it's role
+#is higher than the managed role - this leads to forbidden errors attempting to
+#add/remove it. Not an issue if the bot creates the role.
+##Get role, check role.position, see if it is lower than Guild.me.top_role.position
+##If not, print message we can't manage the role due to it's position.
+
+#Have 'help' determine if a user is trying to get help for a context, and inform
+#them to use '<context> help' instead?
 
 #Clean up various uses of server to guild, to match discord.py/Discord usage
 #instead of server.
+##Likewise, should ensure I always use stream to refer to a stream from picarto/etc
+##and not channel, to avoid confusing the discord term with it.
 
 #Need to account for channel overrides in list. Either put a marker on them saying
 #that an OR exists and add a command to view them, or put them directly in list.
@@ -48,11 +51,10 @@
 ##check - if set return None so no message gets sent. That should work.
 
 #General TODO list/ideas:
-#ADD NotImplementedError TO FUNCTIONS NEEDING TO BE OVERRIDDEN!
-#Not sure there are any of these left tbh
-
-#I've seen a few cases of offline streams not getting edited to offline.
+#I've seen a few cases of offline streams not getting edited to offline. (0.6)
 ##Maybe some error in removemsg is causing it but getting hidden?
+##Haven't seen it since, so possibly just an odd connection issue, or something
+##already fixed by the redoing of code into it's current class based form.
 
 #maybe have it announce online channels if it hasn't announced them before -
 #ie was offline when they came online, rather than only when they first come online
@@ -65,6 +67,15 @@
 #Maybe a way to permalink a message to a stream so that it always edits that one
 #message instead, never making a new one. Seems kinda pointless, but easy enough
 #New option - 'single', that says to do this?
+
+#Kinda similarly, something to move a savedmsg to a new channel if the channel
+#gets changed. So 'add stream <channel>' would delete the old message and make a
+#new one in the proper channel.
+
+#Should look and see if it's easy to determine stream length for picarto/twitch/piczel
+#The current version works ok, but if I do end up moving messages like above then
+#that'll reset the msgid, which resets the start time. If it's already present in
+#the record in parsed, should be easy enough to grab it. If not, then msgid is fine
 
 #Holdover from 0.5:
 #Add role management permission - DONE
@@ -99,6 +110,12 @@
 
 version = 0.7 #Current bot version
 changelog = {}
+changelog["0.8"] = '''0.8 from 0.7 Changelog:
+GENERAL
+'manage check' command now explicitly lists if members are a bot: bots never have permission to address the bot.
+BACKEND IMPROVEMENTS
+NotFound errors when updating/removing announcement messages are now handled properly; the saved message id is removed.
+'''
 changelog["0.7"] = '''0.7 from 0.6 Changelog:
 GENERAL
 Added stream length to edited announcement messages.
@@ -428,9 +445,11 @@ async def hasrole(member, rolename) :
 async def managehandler(command, message) :
     #Commands: check (if user can use bot), help, (Check for manage_role here!)
     #add, remove
-    if len(command) == 0 :
-        await message.channel.send("Please provide a command!")
+    if len(command) == 0 or not (command[0] in ('help','check','add','remove')) :
+        await message.channel.send("Please provide one of the following commands: help, check, add, remove")
         return
+    userrole = await getuserrole(message.guild)
+    message.guild.me.top_role.position
     if command[0] == 'help' :
         msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
         msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands."
@@ -439,10 +458,13 @@ async def managehandler(command, message) :
         if not message.channel.permissions_for(message.guild.me).manage_roles :
             msg += "\n**Bot does not** have permission to manage user roles. Only check and help commands are active."
             msg += "\Please manually add the 'manage roles' permission to make use of additional features."
+        if message.guild.me.top_role.position < userrole.position :
+            msg += "\n**Bot does not** have permission to add/remove " + userrole.name + " due to role position."
+            msg += "\nPlease ensure the " + userrole.name + " role is below the bots role."
+            msg += "\n" + userrole.name + " position: " + str(userrole.position) + ". Bots highest position: " + str(message.guild.me.top_role.position)
         await message.channel.send(msg)
         return
     if command[0] == 'check' :
-        userrole = await getuserrole(message.guild)
         hasperm = set()
         noperm = set()
         msg = ""
@@ -450,32 +472,41 @@ async def managehandler(command, message) :
         for username in command[1:] :
             founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
             if founduser :
-                if founduser.guild_permissions.administrator :
-                    hasperm.add(username + ":admin")
+                if founduser.bot :
+                    noperm.add(username + ":bot") #User is a bot, never allowed
+                #If the user has permission, add them to the list with why
+                elif founduser.guild_permissions.administrator :
+                    hasperm.add(username + ":admin") #User is an admin, they always have permission
                 elif userrole and await hasrole(founduser,userrole.name) :
-                    hasperm.add(username + ":role")
+                    hasperm.add(username + ":role") #User has the role.
                 else :
-                    noperm.add(username)
+                    noperm.add(username) #User has neither
             else :
                 notfound.add(username)
-        if hasperm :
+        if hasperm : #We had at least one permitted user: list them
             msg += "Permitted users: " + ", ".join(hasperm)
-        if noperm :
+        if noperm : #We had at least one not permitted user: list them
             msg += "\nNot permitted users: " + ", ".join(noperm)
         if notfound :
             msg += "\nThe following users were not found in the server: " + ", ".join(notfound)
-        if not msg :
-            msg += "Unable to check any users due to unknown error."
+        if not msg : #Should never happen, but maybe no user names were provided.
+            msg += "Unable to check any users due to unknown error. Please ensure you provided a list of usernames to check."
         await message.channel.send(msg)
         return
     if not (command[0] in ['add','remove']) :
         await message.channel.send("Unknown command Please use 'manage help' to see available commands.")
         return
+    #See if we have permission to add/remove user roles
     if not message.channel.permissions_for(message.guild.me).manage_roles :
         await message.channel.send("Bot does not have permission to manage user roles.")
         return
+    if message.guild.me.top_role.position < userrole.position :
+        msg = "Bot does not have permission to add/remove " + userrole.name + " due to role position."
+        msg += "\nPlease ensure the " + userrole.name + " role is below the bots role."
+        msg += "\n" + userrole.name + " position: " + str(userrole.position) + ". Bots highest position: " + str(message.guild.me.top_role.position)
+        await message.channel.send(msg)
+        return
     if command[0] == 'add' :
-        userrole = await getuserrole(message.guild)
         if not userrole :
             await message.channel.send("Unable to obtain/create the necessary role for unknown reason.")
             return
@@ -573,12 +604,9 @@ async def debughandler(command, message) :
         #client.loop.close() #This is closed later
     elif command[0] == 'checkupdate' :
         print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
-    elif command[0] == 'checkmentions' :
-        print(command,":",message)
-        print(message.channel_mentions)
-        if len(message.channel_mentions) == 1 :
-            print(command[1],message.channel_mentions[0],command[1] == message.channel_mentions[0])
-        await message.channel.send("Derp")
+    elif command[0] == 'getmessage' :
+        print(await message.channel.fetch_message(command[1]))
+        
 
 newcontext("debug",debughandler,{})
 
