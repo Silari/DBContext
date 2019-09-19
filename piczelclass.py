@@ -80,6 +80,10 @@ class PiczelContext(basecontext.APIContext) :
         #the stream, such as who is watching and track announcement messages.
         return rec['username']
 
+    async def isadult(self,rec) :
+        '''Whether the API sets the stream as Adult. '''
+        return rec['adult']
+
     #The embed used by the default message type. Same as the simple embed except
     #that was add on a preview of the stream.
     async def makeembed(self,rec,snowflake=None,offline=False) :

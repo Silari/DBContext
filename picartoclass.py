@@ -48,7 +48,14 @@ class PicartoContext(basecontext.APIContext) :
         #Adding stuff below here is fine, obviously.
 
     async def getrecname(self,rec) :
+        #Should return the name of the record used to uniquely id the stream.
+        #Generally, rec['name'] or possibly rec['id']. Used to store info about
+        #the stream, such as who is watching and track announcement messages.
         return rec['name']
+
+    async def isadult(self,rec) :
+        '''Whether the API sets the stream as Adult. '''
+        return rec['adult']
 
     async def makeembed(self,rec,snowflake=None,offline=False) :
         #Simple embed is the same, we just need to add a preview image.

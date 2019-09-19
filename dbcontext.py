@@ -3,44 +3,35 @@
 
 
 #Todo for 0.8:
-#If getting the message fails for a savedmsg, clear it? Need to find out what
-#results from get message for sure means it no longer exists. (or at least is no
-#longer accessible for the bot)
-##raises discord.errors.NotFound, Forbidden might be possible if not in guild/channel
-##but we have checks in place for that already.
-###DONE, CHECK
+#Test no adult streams allowed!
+##Keeps hitting True even though adult streams are allowed?
+#Add that option to list
 
 #Allow mentioning a channel for manage to create the PicartoWatch role with the
 #needed permission to read+talk in that channel
-
-#manage checks that the bot has manage_roles permission, but not that it's role
-#is higher than the managed role - this leads to forbidden errors attempting to
-#add/remove it. Not an issue if the bot creates the role.
-##Get role, check role.position, see if it is lower than Guild.me.top_role.position
-##If not, print message we can't manage the role due to it's position.
-
-#Have 'help' determine if a user is trying to get help for a context, and inform
-#them to use '<context> help' instead?
 
 #Clean up various uses of server to guild, to match discord.py/Discord usage
 #instead of server.
 ##Likewise, should ensure I always use stream to refer to a stream from picarto/etc
 ##and not channel, to avoid confusing the discord term with it.
-
-#Need to account for channel overrides in list. Either put a marker on them saying
-#that an OR exists and add a command to view them, or put them directly in list.
+###getchannel when i wanted resolvechannel already got me once, ffs
 
 #Add a module named Global for handling global settings - pretty simple data layout
 #ServerID->['Channel'],['MSG'],['Type'], etc.
 #Need to add a way for modules to READ but not WRITE this - getglobal(globalname)?
+#Reading done, but still need a way to set this.
+
+#HEY YOU ADD RESOLVECHANNEL USING GETGLOBAL - KINDA DONE BUT TEST IT
 
 #Similar to parsechannel, add a getoption(Type) to resolve an option setting
 #Probably add a defaultoptions dict to basecontext to control what to return
 #when there isn't one set. defaultopts = {'Type':'default','MSG':'edit'}
 #Again, this can handle getting the global value via getglobal if needed.
-#Done, apart from global.
+#Done, apart from global. global ALSO done, just need to be able to set it
+##ALSO need a way to delete options. Both from the global store and context store
 
 #Add in "optionor streamname <options>" for overriding options per stream?
+#getoption supports 
 
 #Need a way to stop ALL announcements on a server. Used to just remove listen
 #channel but that's no guarantee since channel overrides will still work. So
@@ -48,7 +39,11 @@
 #and moves it into 'stopped' or something
 ##No that won't work because it'd still be in the streams Servers info so it'd
 ##still be announced. Instead, maybe an ['Options']['Stop'] that getchannel would
-##check - if set return None so no message gets sent. That should work.
+##check - if set return None so no message gets sent. That should work. NOPE,
+##cause that would affect other things like detail and such. Instead announce
+##checks for stop, so only new announcements don't go through. commands will.
+###DONE, announce now checks for stop in COver. Needs check
+#ADD TO LIST COMMAND. DONE, needs check
 
 #General TODO list/ideas:
 #I've seen a few cases of offline streams not getting edited to offline. (0.6)
@@ -102,7 +97,9 @@
 
 #All modules TODO
 #Now that options exist, add option to ignore Adult streams in announcements.
-##Not everything may support that - not a priority anyway - don't watch em if you don't want to see em.
+##Partial. Need to figure out what to do with streams that are marked adult
+##May want to announce them normally, but a no-preview embed instead? No links?
+###AdultChannel? If set, adult streams are announced there instead.
 
 #Option to @here - probably better handled by channel notifications user side
 
@@ -112,9 +109,21 @@ version = 0.7 #Current bot version
 changelog = {}
 changelog["0.8"] = '''0.8 from 0.7 Changelog:
 GENERAL
+Added adult/noadult option. Will hide streams that are marked as adult, if the API supports it.
+  Please note that this is based on the streamer setting that option appropriately, and that previews may be cached from non-safe periods both on the API and user side.
+  Do not rely on this option to perfectly shield your users from potentially NSFW content.
 'manage check' command now explicitly lists if members are a bot: bots never have permission to address the bot.
+stop command now unsets announcement channel and prevents new announcements from being made, even if they have an overridden announcement channel.
+  Using listen will start announcements again. Old announcements will still be edited/removed when applicable.
+  list command will state if the stop command is currently active.
+list command now shows channel overrides when present.
+calling the help module with a context name will pass the help command to that module.
+Fixed an error in basecontext that prevented help from working.
 BACKEND IMPROVEMENTS
 NotFound errors when updating/removing announcement messages are now handled properly; the saved message id is removed.
+getglobal function added to module+class based contexts when added.
+  Allows retrieving globally set values for options, as well as default values.
+  Default values currently working, setting global values not yet added.
 '''
 changelog["0.7"] = '''0.7 from 0.6 Changelog:
 GENERAL
@@ -281,6 +290,22 @@ print("Initial Contexts:",contexts)
 newcont = {}
 contfuncs = {}
 
+async def getglobal(guildid,option,rec=None) :
+    '''Gets the value for the option given in the global namespace, set in the
+       manage context. This allows for setting an option once for all contexts
+       which read from global.'''
+    try : #Try to read this guild's option from the manage contexts data.
+        return contexts["manage"]["Data"][guildid][option]
+    except KeyError : #Either server has no options, or doesn't have this option
+        pass #None found, so continue to next location.
+    try : #Lets see if the option is in the default options dict.
+        return defaultopts[option]
+    except KeyError :
+        pass
+    #Global here, or before defaults? Or maybe have global handle grabbing
+    #the defaults if there isn't a global opt set. Seems better.
+    return None #No option of that type found in any location.
+
 #Used to convert old contexts to new one for 0.5 due to discord.py changes
 def convertcontexts() :
     global newcont
@@ -297,6 +322,8 @@ def convertcontexts() :
                     newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'] = int(newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'])
 
 #Function to setup new context handler - handles the dbcontext side of adding.
+#This should only be used directly by the builtin contexts of dbcontext.py.
+#All other contexts should use newmodcontext or newclasscontext.                   
 def newcontext(name,handlefunc,data) :
     '''Registers a new context for the bot to handle.'''
     if not (name in contexts) :
@@ -323,6 +350,7 @@ def newmodcontext(modname) :
     newcontext(modname.name, modname.handler, modname.defaultdata)
     modname.client = client
     modname.mydata = contexts[modname.name]["Data"]
+    modname.getglobal = getglobal
     try :
         if modname.updatewrapper :
             taskmods.append(modname)
@@ -347,12 +375,13 @@ def newclasscontext(classinst) :
     newcontext(classinst.name, classinst.handler, classinst.defaultdata)
     classinst.client = client
     classinst.mydata = contexts[classinst.name]["Data"]
+    classinst.getglobal = getglobal
     try :
         if classinst.updatewrapper :
             taskmods.append(classinst)
     except :
         pass
-    
+
 import picartoclass
 newclasscontext(picartoclass.PicartoContext())
 import piczelclass
@@ -379,6 +408,7 @@ async def helphandler(command, message) :
 ##        msg = 'For help with a specific context, please use "<context> help"'
 ##        await message.channel.send(msg)
 ##    else :
+    #print("help", command)
     if len(command) > 0 :
         if command[0] == "version" :
             msg = client.user.name + " bot version " + str(version)
@@ -410,6 +440,10 @@ async def helphandler(command, message) :
             msg += "\nIf you wish to use the manage module: <" + roleinvite + ">"
             msg += "\nNote that if the bot is already in your server, re-inviting will NOT reset permissions."
             await message.channel.send(msg)
+        elif command[0] in contfuncs : #User asking for help with a context.
+            #Redirect the command to the given module.
+            #print("cont help", ["help"] + command[1:])
+            await contfuncs[command[0]](["help"] + command[1:],message)
     else :
         msg = "PicartoWatch bot version " + str(version)
         msg += "\nOnline help and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
@@ -420,6 +454,26 @@ async def helphandler(command, message) :
         await message.channel.send(msg)
 
 newcontext("help",helphandler,{})
+
+defaultopts = {
+    'Type':'default', #Type of announcement to use, default= embed with preview.
+    'MSG':'edit', #Should messages be edited and/or removed after announcement?
+    'Stop':False, #Should no new announcements be made?
+    'Channel':None, #Default channel to announce in is no channel.
+    'Adult':True #Should streams marked adult be shown normally?
+}
+
+globalops = {}
+
+async def addglobal(optname,validate=None) :
+    '''Adds a new option name to the list of options that manage will allow
+       setting via 'manage setopt <optname>'. optname must be a str or evalute
+       properly when compared to a string using ==. If validate is passed it
+       should be a function handle which is called when the value is set as
+       validate(optname,value). If the function return evalutes False, the user
+       will receive a message the value is not appropriate and the value is not
+       set.'''
+    defaultopts[optname] = validate
 
 async def getuserrole(guild) :
     #Find the bot role in the server
@@ -560,7 +614,7 @@ async def debughandler(command, message) :
         await message.channel.send(msg)
         return
     if not (message.author.id == 273076937474441218) :
-        print("Not GP, do not run",command[1:])
+        #print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         #await message.channel.send("Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
         return
@@ -738,7 +792,7 @@ async def on_ready() :
     print(client.user.name)
     print(client.user.id)
     print('------')
-    #We set out activity here - we can't do it in the client creation because we don't have the user name yet
+    #We set our activity here - we can't do it in the client creation because we don't have the user name yet
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
 def closebot() :
