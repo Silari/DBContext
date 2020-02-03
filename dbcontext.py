@@ -119,16 +119,9 @@ calling the help module with a context name will pass the help command to that m
 Fixed an error in basecontext that prevented help from working.
 twitch streams now handle not having a game id set.
 'streamoption <streamname> <option>' command added, which sets an option only for the given stream.
-BACKEND IMPROVEMENTS
-getoption added to APIContext, which handles reading options on a per stream, per context, global, and default basis automatically.
-setstreamoption added to APIContext, which sets stream based override options.
-NotFound errors when updating/removing announcement messages are now handled properly; the saved message id is removed.
-getglobal function added to module+class based contexts when added.
-  Allows retrieving globally set values for options, as well as default values.
-  Default values currently working, setting global values not yet added.
-Some functions in APIContext now raise NotImplementedError, as they must be overridden.
-basecontext announce function now uses the same code for single and normal announcements.
-'''
+PICZEL
+Modified code for API change to avatar url location
+Please see the github for further items.'''
 changelog["0.7"] = '''0.7 from 0.6 Changelog:
 GENERAL
 Added stream length to edited announcement messages.
@@ -141,18 +134,7 @@ Fixed an issue where streams were marked as offline before the proper wait time.
 Quitting using the debug quit command now exits with status code 42, to allow for checking of intentional stoppage.
   Bot exit due to other reasons (SIGINT/SIGTERM/etc) is handled better, but still needs work.
 API based modules now track if the last API update succeeded. Failure will be noted in the list command.
-BACKEND IMPROVEMENTS
-API modules all share a ClientSession instance.
-API calls have more stringent timeouts for server responses.
-Added acallapi, async function to get the given URL, with optional headers. This is used to centralize API handling.
-  All API calls in APIContext, Picartoclass, Piczelclass, and Twitchclass use acallapi now.
-Added resolvechannel to APIContext, which determines what channel to send a message to based on server, channel overrides, and eventually global settings.  
-updateparsed added to APIContext, used by Picarto+Piczel. Twitch still overrides.
-agetchannel added to APIContext, and result modified by subclasses as necessary.
-# of updates before declaring a stream offline moved to variable, as it's used in multiple places now.
-removemsg in APIContext now accepts a list of servers to remove from
-Bot no longer attempts to split message until all checks are true - very minor optimization.
-'''
+Please see the github for further items.'''
 changelog["0.6"] = '''0.6 from 0.5 Changelog:
 GENERAL
 Data saving made more robust, and most errors should be found before attempting to save data.
@@ -671,6 +653,7 @@ async def debughandler(command, message) :
     elif command[0] == 'quit' :
         global calledstop
         calledstop = True
+        await message.channel.send("Client exiting. Goodbye.")
         await client.logout()
         #client.loop.close() #This is closed later
     elif command[0] == 'checkupdate' :

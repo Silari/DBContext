@@ -80,12 +80,25 @@ class PiczelContext(basecontext.APIContext) :
         #the stream, such as who is watching and track announcement messages.
         return rec['username']
 
+    async def getavatar(self,rec) :
+        #Parse the avatar URL from the record.
+        #This seems to have changed around Feb 1, 2020.
+        try : #New location, looks like everything uses this now
+            rec['user']['avatar']['url']
+        except :
+            pass
+        try : #Old location, keep JIC some records still use it
+            return rec['user']['avatar']['avatar']['url']
+        except :
+            pass
+        return None
+
     async def isadult(self,rec) :
         '''Whether the API sets the stream as Adult. '''
         return rec['adult']
 
     #The embed used by the default message type. Same as the simple embed except
-    #that was add on a preview of the stream.
+    #that we add on a preview of the stream.
     async def makeembed(self,rec,snowflake=None,offline=False) :
         #Simple embed is the same, we just need to add a preview image. Save code
         myembed = await self.simpembed(rec,snowflake,offline)
@@ -108,7 +121,9 @@ class PiczelContext(basecontext.APIContext) :
         noprev = discord.Embed(title=embtitle,url=piczelurl + rec['username'],description=description)
         noprev.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Viewers: " + str(rec['viewers']),inline=True)
         noprev.add_field(name=value,value="Private: " + ("Yes" if rec['isPrivate?'] else "No"),inline=True)
-        noprev.set_thumbnail(url=rec['user']['avatar']['avatar']['url'])
+        avatar = await self.getavatar(rec)
+        if avatar :
+            noprev.set_thumbnail(url=avatar)
         return noprev
 
     async def makedetailembed(self,rec,snowflake=None,offline=False) :
