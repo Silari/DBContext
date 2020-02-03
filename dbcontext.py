@@ -1,27 +1,58 @@
 #discord bot with module based functionality.
-#Now based on discord.py version 1.2.2
-
+#Now based on discord.py version 1.2.5
 
 #Todo for 0.8:
-#Test no adult streams allowed!
-##Keeps hitting True even though adult streams are allowed?
-#Add that option to list
+#Add in "streamoption streamname <options>" for overriding options per stream?
+#getoption supports reading if set in ['COver'][guildid][rec]['Option'][option]
+#Done, not at all tested. Added new setstreamoption which handles the setting,
+#including making the nested dicts.
 
-#Allow mentioning a channel for manage to create the PicartoWatch role with the
-#needed permission to read+talk in that channel
+#Add messages when using certain commands if the API is currently down - ie failed last update
+##Done, test? add/addmult, detailannounce when failed, 
+
+#Todo for 0.9:
+#VERY IMPORTANT
+#Start using getoption for anything that needs to get an option. That provides
+#free support for any of the overrides/global options/etc. Especially announce
+#stuff - creation/editing.
+
+#If set to listen in a channel, via listen or listen <chan>, PM the user setting
+#the message if the bot does not have view, or send message permission in the
+#channel given.
+
+#Rewrite the messages so they're marked offline quicker, with the message being
+#reused if it comes back within 10 minutes. Basically just change the edit message
+#part to note that it is currently offline?
 
 #Clean up various uses of server to guild, to match discord.py/Discord usage
 #instead of server.
 ##Likewise, should ensure I always use stream to refer to a stream from picarto/etc
 ##and not channel, to avoid confusing the discord term with it.
 ###getchannel when i wanted resolvechannel already got me once, ffs
+####This means doing a lot of find/replace, so I'm holding off until next version
+
+#maybe rewrite stop to not clear the listen channel. Instead things would check
+#COver for the stop, possibly in getchannel
+
+#Need some way to say that an API doesn't support an option, like twitch for adult
+#Thought about getoption=None but that's the fallback if it doesn't exist.
+#Maybe 'NA' or something.
+##Might be best to keep a dict of valid options {name:group}, and if it's not in
+##there it doesn't apply to that API.
+###Pretty big rewrite, hold till next. I can redo all of the option command though
+###if I do this, and have it check a dict of possible options for the category.
+#HIGHLY RELATED
+#Maybe give contexts a 'commands' list so that it's easier to see what are valid?
+#help could use this to see what contexts have a particular command.
+
+##Can also allow "PWNotify" role that can get @'d if proper option is set.
+###Do this via reacting to a message sent by the bot. Can unreact to unset?
 
 #Add a module named Global for handling global settings - pretty simple data layout
 #ServerID->['Channel'],['MSG'],['Type'], etc.
 #Need to add a way for modules to READ but not WRITE this - getglobal(globalname)?
 #Reading done, but still need a way to set this.
-
-#HEY YOU ADD RESOLVECHANNEL USING GETGLOBAL - KINDA DONE BUT TEST IT
+##See below, module options instead
 
 #Similar to parsechannel, add a getoption(Type) to resolve an option setting
 #Probably add a defaultoptions dict to basecontext to control what to return
@@ -29,28 +60,12 @@
 #Again, this can handle getting the global value via getglobal if needed.
 #Done, apart from global. global ALSO done, just need to be able to set it
 ##ALSO need a way to delete options. Both from the global store and context store
-
-#Add in "optionor streamname <options>" for overriding options per stream?
-#getoption supports 
-
-#Need a way to stop ALL announcements on a server. Used to just remove listen
-#channel but that's no guarantee since channel overrides will still work. So
-#then I could add a stop/start command that takes the entire servers Listens tree
-#and moves it into 'stopped' or something
-##No that won't work because it'd still be in the streams Servers info so it'd
-##still be announced. Instead, maybe an ['Options']['Stop'] that getchannel would
-##check - if set return None so no message gets sent. That should work. NOPE,
-##cause that would affect other things like detail and such. Instead announce
-##checks for stop, so only new announcements don't go through. commands will.
-###DONE, announce now checks for stop in COver. Needs check
-#ADD TO LIST COMMAND. DONE, needs check
+###Previously this was going to be through manage setopt, but thinking about it
+###I'd rather make a new module for it, options, and direct things to use that
+###whenever possible, rather than invoking it for each APIContext. Simpler.
+####Deleting options is done in streamoption with the 'clear' option, which deletes em all.__call__
 
 #General TODO list/ideas:
-#I've seen a few cases of offline streams not getting edited to offline. (0.6)
-##Maybe some error in removemsg is causing it but getting hidden?
-##Haven't seen it since, so possibly just an odd connection issue, or something
-##already fixed by the redoing of code into it's current class based form.
-
 #maybe have it announce online channels if it hasn't announced them before -
 #ie was offline when they came online, rather than only when they first come online
 ##This would require either constantly going through the entire online list and finding
@@ -61,7 +76,8 @@
 ###to still running streams/edit them to offline if needed. That'd be nice.
 #Maybe a way to permalink a message to a stream so that it always edits that one
 #message instead, never making a new one. Seems kinda pointless, but easy enough
-#New option - 'single', that says to do this?
+#New option - 'single', that says to do this? ###Don't think I will cause you want
+###the new message so people get notified.
 
 #Kinda similarly, something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
@@ -74,56 +90,44 @@
 
 #Holdover from 0.5:
 #Add role management permission - DONE
-##Can also allow "PWNotify" role that can get @'d if proper option is set.
-###Do this via reacting to a message sent by the bot. Can unreact to unset?
-
-#0.6 Idea:
-#Rewrite context modules to be class based - DONE
-#This would allow for loading multiple copies of a class, just use a different
-#name. The API calls and such would still need to be shared though! Maybe check
-#if parsed is already filled or if non-default don't run, just use the already
-#saved parsed. Would need that to be static then? Or not, since it's saved to the
-#module itself, so each class would be able to access it just fine. Would need to
-#keep a separate copy inside each class instance though so it'd know what changed
-#unless I rewrite the module to keep the changes.
-#IF I END UP ALLOWING MULTIPLE INSTANCES TO SHARE ONE UPDATETASK THEN I NEED TO
-#CORRECT USAGE OF PARSED TO BE .CLEAR AND .UPDATE INSTEAD OF REPLACING OUTRIGHT.
-#This would mean redoing updatetask to deepcopy the old parsed to a new one to
-#save it instead.
-#Much less needed now due to channel overrides
 
 #@Bot announce - announces here for all?
-#@Bot accounce <channel> - announce in <channel> for all?
+#@Bot announce <channel> - announce in <channel> for all?
 
 #All modules TODO
-#Now that options exist, add option to ignore Adult streams in announcements.
-##Partial. Need to figure out what to do with streams that are marked adult
-##May want to announce them normally, but a no-preview embed instead? No links?
-###AdultChannel? If set, adult streams are announced there instead.
-
 #Option to @here - probably better handled by channel notifications user side
+##Adding in the notify role instead, so that'd handle it just fine.
 
 #Redo detail announce so that it responds in the channel it was requested in?
 
-version = 0.7 #Current bot version
+version = 0.8 #Current bot version
 changelog = {}
 changelog["0.8"] = '''0.8 from 0.7 Changelog:
 GENERAL
 Added adult/noadult option. Will hide streams that are marked as adult, if the API supports it.
   Please note that this is based on the streamer setting that option appropriately, and that previews may be cached from non-safe periods both on the API and user side.
   Do not rely on this option to perfectly shield your users from potentially NSFW content.
+  list command will state if adult streams are enabled or not.
 'manage check' command now explicitly lists if members are a bot: bots never have permission to address the bot.
+'manage create <channelmention>' command added - will create the bot role if necessary, and then add a permission override for the given channel for read + send messages.
 stop command now unsets announcement channel and prevents new announcements from being made, even if they have an overridden announcement channel.
   Using listen will start announcements again. Old announcements will still be edited/removed when applicable.
   list command will state if the stop command is currently active.
 list command now shows channel overrides when present.
+announce command will cause the bot to announce any live streams that have not been announced.
 calling the help module with a context name will pass the help command to that module.
 Fixed an error in basecontext that prevented help from working.
+twitch streams now handle not having a game id set.
+'streamoption <streamname> <option>' command added, which sets an option only for the given stream.
 BACKEND IMPROVEMENTS
+getoption added to APIContext, which handles reading options on a per stream, per context, global, and default basis automatically.
+setstreamoption added to APIContext, which sets stream based override options.
 NotFound errors when updating/removing announcement messages are now handled properly; the saved message id is removed.
 getglobal function added to module+class based contexts when added.
   Allows retrieving globally set values for options, as well as default values.
   Default values currently working, setting global values not yet added.
+Some functions in APIContext now raise NotImplementedError, as they must be overridden.
+basecontext announce function now uses the same code for single and normal announcements.
 '''
 changelog["0.7"] = '''0.7 from 0.6 Changelog:
 GENERAL
@@ -239,7 +243,7 @@ import discord
 import copy #Needed to deepcopy contexts for periodic saving
 import asyncio #Async wait command
 import aiohttp #used for ClientSession which is passed to modules.
-import sys #Used for sys.exit(42) when debug quit is used.
+import traceback #Used to print traceback on uncaught exceptions.
 
 myloop = asyncio.get_event_loop()
 client = discord.Client(loop=myloop)
@@ -302,8 +306,6 @@ async def getglobal(guildid,option,rec=None) :
         return defaultopts[option]
     except KeyError :
         pass
-    #Global here, or before defaults? Or maybe have global handle grabbing
-    #the defaults if there isn't a global opt set. Seems better.
     return None #No option of that type found in any location.
 
 #Used to convert old contexts to new one for 0.5 due to discord.py changes
@@ -499,7 +501,7 @@ async def hasrole(member, rolename) :
 async def managehandler(command, message) :
     #Commands: check (if user can use bot), help, (Check for manage_role here!)
     #add, remove
-    if len(command) == 0 or not (command[0] in ('help','check','add','remove')) :
+    if len(command) == 0 or not (command[0] in ('help','check','add','remove','create')) :
         await message.channel.send("Please provide one of the following commands: help, check, add, remove")
         return
     userrole = await getuserrole(message.guild)
@@ -547,7 +549,7 @@ async def managehandler(command, message) :
             msg += "Unable to check any users due to unknown error. Please ensure you provided a list of usernames to check."
         await message.channel.send(msg)
         return
-    if not (command[0] in ['add','remove']) :
+    if not (command[0] in ['add','remove','create']) :
         await message.channel.send("Unknown command Please use 'manage help' to see available commands.")
         return
     #See if we have permission to add/remove user roles
@@ -560,6 +562,21 @@ async def managehandler(command, message) :
         msg += "\n" + userrole.name + " position: " + str(userrole.position) + ". Bots highest position: " + str(message.guild.me.top_role.position)
         await message.channel.send(msg)
         return
+    if command[0] == 'create' :
+        if not userrole : #This isn't due to permissions issues, as we check that above
+            await message.channel.send("Unable to obtain/create the necessary role for unknown reason.")
+            return
+        if message.channel_mentions : #We can't do anything if they didn't include a channel
+            #We need to set this channel to be talkable by anyone with the role.
+            channel = message.channel_mentions[0]
+            newoverride = discord.PermissionOverwrite(**{"send_messages":True,"read_messages":True})
+            try :
+                await channel.set_permissions(userrole,overwrite=newoverride,reason="Added send message permission to bot user role.")
+                msg = "Role has been created and an override for read+send set in channel " + channel.name
+                await message.channel.send(msg)
+            except discord.Forbidden :
+                msg = "Bot does not have permission to set read+send override in channel " + channel.name + ". Please ensure it has the read message and write message permissions in that channel."
+                await message.channel.send(msg)
     if command[0] == 'add' :
         if not userrole :
             await message.channel.send("Unable to obtain/create the necessary role for unknown reason.")
@@ -643,7 +660,7 @@ async def debughandler(command, message) :
         msg = " ".join(command[1:])
         await message.channel.send(msg)
     elif command[0] == 'replyeval' :
-        msg = eval(command[1:])
+        msg = eval(" ".join(command[1:]))
         await message.channel.send(msg)
     elif command[0] == 'sendall' :
         await sendall(" ".join(command[1:]))
@@ -657,10 +674,17 @@ async def debughandler(command, message) :
         await client.logout()
         #client.loop.close() #This is closed later
     elif command[0] == 'checkupdate' :
-        print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
+        #This lets us see if the last update API call for our stream classes worked
+        #print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
+        await message.channel.send("Pica: " + picartoclass.lastupdate + "Picz: " + piczelclass.lastupdate + "Twit: " + twitchclass.lastupdate)
+    elif command[0] == 'channelperms' :
+        #Gets the effective permissions for the bot in the given channel id
+        if len(command) > 0 :
+            foundchan = client.get_channel(command[1])
+            print(foundchan.permissions_for(foundchan.guild.me))
     elif command[0] == 'getmessage' :
         print(await message.channel.fetch_message(command[1]))
-        
+
 
 newcontext("debug",debughandler,{})
 
@@ -733,7 +757,6 @@ async def on_member_update(before, after) :
     if addpat :
         userrole = discord.utils.find(lambda m: m.id == 336063609815826444, after.guild.roles)
         await after.add_roles(userrole,reason="Re-adding removed patreon role")
-    
 
 @client.event
 async def on_message(message):
@@ -761,7 +784,7 @@ async def on_message(message):
             #print(hasrole, item.name, client.user.name)
     #The bot listens to anyone who is an admin, or has a role named after the bot
     if message.author.guild_permissions.administrator or hasrole :
-        if message.content.startswith('<@' + str(client.user.id) + ">") :
+        if message.content.startswith('<@!' + str(client.user.id) + ">") :
             command = message.content.split()
             #print("Listening for message", len(command))
             if len(command) < 2 :
@@ -784,14 +807,15 @@ async def on_message(message):
 @client.event
 async def on_resumed() :
     #Ensure our activity is set when resuming.
+    print("Client resumed")
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
-    
+
 @client.event
 async def on_ready() :
-    print('------\nLogged in as')
+    print("------\nLogged in as")
     print(client.user.name)
     print(client.user.id)
-    print('------')
+    print("------")
     #We set our activity here - we can't do it in the client creation because we don't have the user name yet
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
@@ -924,7 +948,7 @@ async def startbot() :
         await aclosebot()
         return
     await myconn.close()
-    
+
 def startupwrapper() :
     try :
         #client.run(token)
@@ -933,6 +957,7 @@ def startupwrapper() :
     except Exception as e :
         #These we want to note so we can catch them where it happened
         print("Uncaught exception, closing", repr(e))
+        traceback.print_tb(e.__traceback__)
 ##        for task in tasks :
 ##            task.cancel()
 ##        closebot()
@@ -976,6 +1001,59 @@ def startupwrapper() :
     #If so, print a message for logging purposes
     if calledstop :
         print("Called quit")
+
+#This section is needed for Python 3.7 to 3.7.3 only.
+import ssl
+import sys
+
+SSL_PROTOCOLS = (asyncio.sslproto.SSLProtocol,)
+
+def ignore_aiohttp_ssl_error(loop):
+    """Ignore aiohttp #3535 / cpython #13548 issue with SSL data after close
+
+    There is an issue in Python 3.7 up to 3.7.3 that over-reports a
+    ssl.SSLError fatal error (ssl.SSLError: [SSL: KRB5_S_INIT] application data
+    after close notify (_ssl.c:2609)) after we are already done with the
+    connection. See GitHub issues aio-libs/aiohttp#3535 and
+    python/cpython#13548.
+
+    Given a loop, this sets up an exception handler that ignores this specific
+    exception, but passes everything else on to the previous exception handler
+    this one replaces.
+
+    Checks for fixed Python versions, disabling itself when running on 3.7.4+
+    or 3.8.
+
+    """
+    if sys.version_info >= (3, 7, 4):
+        return
+
+    orig_handler = loop.get_exception_handler()
+
+    def ignore_ssl_error(loop, context):
+        if context.get("message") in {
+            "SSL error in data received",
+            "Fatal error on transport",
+        }:
+            # validate we have the right exception, transport and protocol
+            exception = context.get('exception')
+            protocol = context.get('protocol')
+            if (
+                isinstance(exception, ssl.SSLError)
+                and exception.reason == 'KRB5_S_INIT'
+                and isinstance(protocol, SSL_PROTOCOLS)
+            ):
+                #print("Ignored bad exception")
+                if loop.get_debug():
+                    asyncio.log.logger.debug('Ignoring asyncio SSL KRB5_S_INIT error')
+                return
+        if orig_handler is not None:
+            orig_handler(loop, context)
+        else:
+            loop.default_exception_handler(context)
+
+    loop.set_exception_handler(ignore_ssl_error)
+ignore_aiohttp_ssl_error(myloop)
 
 if __name__ == "__main__" :
     startupwrapper()
