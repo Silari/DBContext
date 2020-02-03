@@ -521,26 +521,32 @@ class APIContext :
             guildlist = [oneserv]
         else : #Otherwise it's all servers that the stream has listed as listening
             guildlist = mydata['AnnounceDict'][recid]
+        #print("Made guildlist",guildlist,":",oneserv)
         for server in guildlist: #mydata['AnnounceDict'][recid] :
+            #print("found a server")
             if await self.getoption(server,'Stop',recid) :
                 #Channel was stopped, do not announce
                 continue
+            #print("Wasn't stopped")
             if (await self.isadult(rec)) and (not await self.getoption(server,'Adult')) :
                 #This is an adult stream and channel does not allow those. Skip it.
                 continue
+            #print("Not adult, or adult allowed")
             sentmsg = None
             try :
                 channel = await self.resolvechannel(server,recid)
                 if channel : #Might not be in server anymore, so no channel
                     msgtype = await self.getoption(server,"Type",recid)
-                    if mydata["Servers"][server]["Type"] == "simple" :
+                    print("msgtype",msgtype)
+                    if msgtype == "simple" :
                         sentmsg = await channel.send(msg)
-                    elif mydata["Servers"][server]["Type"] == "noprev" :
+                    elif msgtype == "noprev" :
                         sentmsg = await channel.send(msg,embed=noprev)
                     else :
                         sentmsg = await channel.send(msg,embed=myembed)
             except KeyError :
                 pass #Server has no announcement channel set
+            #print("Sent",sentmsg)
             if sentmsg :
                 if not (server in self.savedmsg) :
                     self.savedmsg[server] = {}
@@ -754,14 +760,19 @@ class APIContext :
                     msg += "\nMessages are currently stopped via the stop command."
                 await message.channel.send(msg)
             elif command[0] == 'announce' : #Reannounce any missing announcements
+                count = 0
                 for item in mydata["Servers"][message.guild.id]["Listens"] :
                         if item in self.parsed : #Stream is online
+                            count = count + 1
                             #Make sure we have a savedmsg, we're going to need it
                             if not (message.guild.id in self.savedmsg) :
                                 self.savedmsg[message.guild.id] = {}
                             #Stream isn't listed, announce it
                             if not item in self.savedmsg[message.guild.id] :
+                                #print("Announcing",item)
                                 await self.announce(self.parsed[item],message.guild.id)
+                msg = "Announced " + str(count) + " stream(s) that are live, but not announced."
+                await message.channel.send(msg)
             elif command[0] == 'add' :
                 if not command[1] in mydata["AnnounceDict"] :
                     newrec = await self.agetchannel(command[1])

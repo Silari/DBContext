@@ -84,12 +84,12 @@ class PiczelContext(basecontext.APIContext) :
         #Parse the avatar URL from the record.
         #This seems to have changed around Feb 1, 2020.
         try : #New location, looks like everything uses this now
-            rec['user']['avatar']['url']
-        except :
+            return rec['user']['avatar']['url']
+        except KeyError :
             pass
         try : #Old location, keep JIC some records still use it
             return rec['user']['avatar']['avatar']['url']
-        except :
+        except KeyError :
             pass
         return None
 
@@ -105,7 +105,7 @@ class PiczelContext(basecontext.APIContext) :
         thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg'
         myembed.set_image(url=thumburl) #Add your image here
         return myembed
-    
+
     #The embed used by the noprev option message. This is general information
     #about the stream - just the most important bits. Users can get a more
     #detailed version using the detail command.
@@ -151,5 +151,7 @@ class PiczelContext(basecontext.APIContext) :
         #myembed.add_field(name="Last online: " + lastonline,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
         thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg'
         myembed.set_image(url=thumburl)
-        myembed.set_thumbnail(url=rec['user']['avatar']['avatar']['url'])
+        avatar = await self.getavatar(rec)
+        if avatar :
+            myembed.set_thumbnail(url=avatar)
         return myembed
