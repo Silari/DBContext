@@ -95,16 +95,18 @@ class TwitchContext(basecontext.APIContext) :
     #Gets the name of the game with gameid. Uses a caching system to prevent
     #unneeded lookups.
     async def getgame(self,gameid) :
-        #For now, we just dont' know
+        #Do we have that gameid cached?
         if gameid in self.mydata['Games'] :
             return self.mydata['Games'][gameid]
+        if gameid == 0 : #Streamer might not have set one at all. Hardcoded.
+            return "No game set"
         try :
             buff = await self.acallapi('https://api.twitch.tv/helix/games?id=' + gameid,headers=twitchheader)
             detchan = buff['data'][0]
             self.mydata['Games'][gameid] = detchan['name']
             return detchan['name']
         except Exception as e:
-            print(repr(e))
+            print("Error in game name:",repr(e))
             return "Error getting game name: " + str(gameid)
         #Find the name of the game using the twitch API here
         return "No name found: " + str(gameid)
