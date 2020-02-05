@@ -537,7 +537,7 @@ class APIContext :
                 channel = await self.resolvechannel(server,recid)
                 if channel : #Might not be in server anymore, so no channel
                     msgtype = await self.getoption(server,"Type",recid)
-                    print("msgtype",msgtype)
+                    #print("msgtype",msgtype)
                     if msgtype == "simple" :
                         sentmsg = await channel.send(msg)
                     elif msgtype == "noprev" :

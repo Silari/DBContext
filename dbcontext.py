@@ -16,6 +16,11 @@
 #free support for any of the overrides/global options/etc. Especially announce
 #stuff - creation/editing.
 
+#Really need to fix a lot of the error handling. When I was writing it it was
+#better to just catch stuff and ignore it but a lot of keyerror things shouldn't
+#happen anymore, and if it does something went wrong that I need logs of (like
+#the issue with announce not using getoption)
+
 #If set to listen in a channel, via listen or listen <chan>, PM the user setting
 #the message if the bot does not have view, or send message permission in the
 #channel given.
