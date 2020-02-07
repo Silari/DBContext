@@ -5,6 +5,7 @@ import json #Interpreting json results - updateparsed most likely needs this.
 import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
+import time #Attaches to thumbnail URL to avoid discord's overly long caching
 
 parsed = {} #Dict with key == 'username'
 lastupdate = [] #Did the last update succeed?
@@ -102,7 +103,7 @@ class PiczelContext(basecontext.APIContext) :
     async def makeembed(self,rec,snowflake=None,offline=False) :
         #Simple embed is the same, we just need to add a preview image. Save code
         myembed = await self.simpembed(rec,snowflake,offline)
-        thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg'
+        thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg' + "?msgtime=" + str(int(time.time()))
         myembed.set_image(url=thumburl) #Add your image here
         return myembed
 
@@ -145,11 +146,7 @@ class PiczelContext(basecontext.APIContext) :
         #print(multstring," : ", str(rec['multistream']))
         myembed = discord.Embed(title=rec['username'] + "'s stream is " + ("" if rec['live'] else "not ") + "online" + multstring,url="https://piczel.tv/" + rec['username'],description=description)
         myembed.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Viewers: " + str(rec['viewers']),inline=True)
-        #Doesn't work pre 3.7, removed.
-        #lastonline = datetime.datetime.fromisoformat(rec['last_live']).strftime("%m/%d/%Y")
-        #lastonline = datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z').strftime("%m/%d/%Y")
-        #myembed.add_field(name="Last online: " + lastonline,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
-        thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg'
+        thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg' + "?msgtime=" + str(int(time.time()))
         myembed.set_image(url=thumburl)
         avatar = await self.getavatar(rec)
         if avatar :

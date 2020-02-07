@@ -227,18 +227,18 @@ class APIContext :
         return retstr
 
     #Embed creation stub. Should be overridden, but is functional.
-    async def simpembed(self,rec,offline=False) :
+    async def simpembed(self,rec,snowflake=None,offline=False) :
         myembed = discord.Embed(title="Stream has come online!",url=self.streamurl.format(await self.getrecname(rec)))
         return myembed
 
     #Embed creation stub. Should be overridden, but is functional.
     #Returns the simple embed.
-    async def makeembed(self,rec,offline=False) :
+    async def makeembed(self,rec,snowflake=None,offline=False) :
         return await self.simpembed(rec,offline)
 
     #Embed creation stub. Should be overridden, but is functional.
     #Returns the normal embed, which may be fine if detailed channel record has no additional information.
-    async def makedetailembed(self,rec,offline=False) :
+    async def makedetailembed(self,rec,snowflake=None,offline=False) :
         return await self.makeembed(rec,offline)
 
     #Short string to announce the stream is online, with stream URL. 
@@ -772,6 +772,8 @@ class APIContext :
                                 #print("Announcing",item)
                                 await self.announce(self.parsed[item],message.guild.id)
                 msg = "Announced " + str(count) + " stream(s) that are live, but not announced."
+                if not self.lastupdate : #Note if the API update failed
+                    msg += "\n**The last attempt to update API failed.** The API may be down. This will cause delays in announcing streams. Streams will be announced/edited/removed as needed when the API call succeeds."
                 await message.channel.send(msg)
             elif command[0] == 'add' :
                 if not command[1] in mydata["AnnounceDict"] :
@@ -1035,4 +1037,6 @@ class APIContext :
                 msg += "\nlist: Lists the current announcement channel and all listened streamer."
                 msg += "\nSome commands/responses will not work unless an announcement channel is set."
                 msg += "\nPlease note that all commands, options and channel names are case sensitive!"
+                if not self.lastupdate : #Note if the API update failed
+                    msg += "\n**The last attempt to update the API failed!** The API may be down. This may cause unexpected behavoir, and certain commands to not work."
                 await message.channel.send(msg)

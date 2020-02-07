@@ -1,14 +1,15 @@
 #discord bot with module based functionality.
 #Now based on discord.py version 1.2.5
 
-#Todo for 0.8:
+#Holdover todos from 0.8:
 #Add in "streamoption streamname <options>" for overriding options per stream?
 #getoption supports reading if set in ['COver'][guildid][rec]['Option'][option]
 #Done, not at all tested. Added new setstreamoption which handles the setting,
 #including making the nested dicts.
 
 #Add messages when using certain commands if the API is currently down - ie failed last update
-##Done, test? add/addmult, detailannounce when failed, 
+##Done, test? add/addmult, detailannounce when failed, announce command, help
+#So far, they've been fine.
 
 #Todo for 0.9:
 #VERY IMPORTANT
@@ -28,6 +29,10 @@
 #Rewrite the messages so they're marked offline quicker, with the message being
 #reused if it comes back within 10 minutes. Basically just change the edit message
 #part to note that it is currently offline?
+
+#If the stream gives a time indication of when it started, use it. The earliest
+#time between stream start and message date could be used for determining stream
+#length.
 
 #Clean up various uses of server to guild, to match discord.py/Discord usage
 #instead of server.
@@ -105,8 +110,15 @@
 
 #Redo detail announce so that it responds in the channel it was requested in?
 
-version = 0.8 #Current bot version
+version = 0.9 #Current bot version
 changelog = {}
+changelog["0.9"] = '''0.9 from 0.8 Changelog:
+GENERAL
+Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
+announce and help commands will not include a message if the last API update failed.
+BACKGROUND
+Fixed basecontext embed functions not having 'snowflake' parameter.
+'''
 changelog["0.8"] = '''0.8 from 0.7 Changelog:
 GENERAL
 Added adult/noadult option. Will hide streams that are marked as adult, if the API supports it.

@@ -9,6 +9,7 @@ import json #Interpreting json results - updateparsed most likely needs this.
 import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
+import time #Attaches to thumbnail URL to avoid discord's overly long caching
 
 parsed = {} #Dict with key == 'user_name'
 lastupdate = [] #Did the last update succeed?
@@ -126,7 +127,7 @@ class TwitchContext(basecontext.APIContext) :
         #You can remove this function and baseclass will just use the simpembed
         #Simple embed is the same, we just need to add a preview image. Save code
         myembed = await self.simpembed(rec,snowflake,offline)
-        myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480")) #Add your image here
+        myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480") + "?msgtime=" + str(int(time.time()))) #Add your image here
         return myembed
     
     #The embed used by the noprev option message. This is general information
@@ -152,7 +153,7 @@ class TwitchContext(basecontext.APIContext) :
             description = rec['title']
             myembed = discord.Embed(title=rec['user_name'] + " is online!",url="https://twitch.tv/" + rec['user_name'],description=description)
             myembed.add_field(name="Game: " + await self.getgame(rec['game_id']),value="Viewers: " + str(rec['viewer_count']),inline=True)
-            myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480"))
+            myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480") + "?msgtime=" + str(int(time.time())))
             msg = rec['user_name'] + " has come online! Watch them at <" + "https://twitch.tv/" + rec['user_name'] + ">"
         else : #We have a user record, due to an offline stream.
             description = rec['description'][:150]

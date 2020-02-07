@@ -6,6 +6,7 @@ import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import datetime #Interpret date+time results for lastonline
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
+import time #Attaches to thumbnail URL to avoid discord's overly long caching
 
 parsed = {} #Dict with key == 'name'
 lastupdate = [] #Did the last update succeed?
@@ -60,7 +61,7 @@ class PicartoContext(basecontext.APIContext) :
     async def makeembed(self,rec,snowflake=None,offline=False) :
         #Simple embed is the same, we just need to add a preview image.
         myembed = await self.simpembed(rec,snowflake,offline)
-        myembed.set_image(url=rec['thumbnails']['web'])
+        myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
         return myembed
 
     async def simpembed(self,rec,snowflake=None,offline=False) :
@@ -97,6 +98,6 @@ class PicartoContext(basecontext.APIContext) :
         #lastonline = datetime.datetime.fromisoformat(rec['last_live']).strftime("%m/%d/%Y")
         lastonline = datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z').strftime("%m/%d/%Y")
         myembed.add_field(name="Last online: " + lastonline,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
-        myembed.set_image(url=rec['thumbnails']['web'])
+        myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
         myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
         return myembed
