@@ -88,6 +88,9 @@
 #message instead, never making a new one. Seems kinda pointless, but easy enough
 #New option - 'single', that says to do this? ###Don't think I will cause you want
 ###the new message so people get notified.
+#announce command makes this less important - users can manually say if they
+#want it to catch up, which is better since catching up all online streams could
+#be a lot of spamming at once.
 
 #Kinda similarly, something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
@@ -97,9 +100,6 @@
 #The current version works ok, but if I do end up moving messages like above then
 #that'll reset the msgid, which resets the start time. If it's already present in
 #the record in parsed, should be easy enough to grab it. If not, then msgid is fine
-
-#Holdover from 0.5:
-#Add role management permission - DONE
 
 #@Bot announce - announces here for all?
 #@Bot announce <channel> - announce in <channel> for all?
@@ -115,8 +115,12 @@ changelog = {}
 changelog["0.9"] = '''0.9 from 0.8 Changelog:
 GENERAL
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
-announce and help commands will not include a message if the last API update failed.
+Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
+announce and help commands will now include a message if the last API update failed.
 BACKGROUND
+streamtime only uses a duration instance to calculate time instead of a Discord snowflake.
+Added getrectime to basecontext, picarto, twitch, and piczel classes. Uses API info to get the length of a stream. Limited use on Picarto due to API constraints.
+streammsg now uses the longer of getrectime and the message snowflake when determining stream length.
 Fixed basecontext embed functions not having 'snowflake' parameter.
 '''
 changelog["0.8"] = '''0.8 from 0.7 Changelog:

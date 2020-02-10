@@ -98,6 +98,12 @@ class PiczelContext(basecontext.APIContext) :
         '''Whether the API sets the stream as Adult. '''
         return rec['adult']
 
+    async def getrectime(self,rec) :
+        '''Time that a stream has ran, determined from the API data.'''
+        #Time the stream began - given in UTC
+        began = datetime.datetime.strptime(rec['live_since'],"%Y-%m-%dT%H:%M:%S.000Z")
+        return datetime.datetime.utcnow() - began
+
     #The embed used by the default message type. Same as the simple embed except
     #that we add on a preview of the stream.
     async def makeembed(self,rec,snowflake=None,offline=False) :
@@ -118,7 +124,7 @@ class PiczelContext(basecontext.APIContext) :
         if not snowflake :
             embtitle = rec['username'] + " has come online!"
         else :
-            embtitle = await self.streammsg(snowflake,offline)
+            embtitle = await self.streammsg(snowflake,rec,offline)
         noprev = discord.Embed(title=embtitle,url=piczelurl + rec['username'],description=description)
         noprev.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Viewers: " + str(rec['viewers']),inline=True)
         noprev.add_field(name=value,value="Private: " + ("Yes" if rec['isPrivate?'] else "No"),inline=True)

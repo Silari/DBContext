@@ -58,6 +58,16 @@ class PicartoContext(basecontext.APIContext) :
         '''Whether the API sets the stream as Adult. '''
         return rec['adult']
 
+    async def getrectime(self,rec) :
+        '''Time that a stream has ran, determined from the API data.'''
+        try :
+            #Time the stream began
+            print("getrectime",rec)
+            began = datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
+        except KeyError : #May not have last_live, ONLY detailed records have that.
+            return datetime.timedelta()
+        return datetime.datetime.now(datetime.timezone.utc) - began
+
     async def makeembed(self,rec,snowflake=None,offline=False) :
         #Simple embed is the same, we just need to add a preview image.
         myembed = await self.simpembed(rec,snowflake,offline)
@@ -72,7 +82,7 @@ class PicartoContext(basecontext.APIContext) :
         if not snowflake :
             embtitle = rec['name'] + " has come online!"
         else :
-            embtitle = await self.streammsg(snowflake,offline)
+            embtitle = await self.streammsg(snowflake,rec,offline)
         noprev = discord.Embed(title=embtitle,url=self.streamurl.format(rec['name']),description=description)
         noprev.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Viewers: " + str(rec['viewers']),inline=True)
         noprev.add_field(name=value,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
@@ -94,10 +104,13 @@ class PicartoContext(basecontext.APIContext) :
         #print(multstring," : ", str(rec['multistream']))
         myembed = discord.Embed(title=rec['name'] + "'s stream is " + ("" if rec['online'] else "not ") + "online" + multstring,url="https://picarto.tv/" + rec['name'],description=description)
         myembed.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Viewers: " + str(rec['viewers']),inline=True)
-        #Doesn't work pre 3.7, removed.
-        #lastonline = datetime.datetime.fromisoformat(rec['last_live']).strftime("%m/%d/%Y")
-        lastonline = datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z').strftime("%m/%d/%Y")
-        myembed.add_field(name="Last online: " + lastonline,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
+        if rec['online'] :
+            lastonline = "Streaming for " + await self.streamtime(await self.getrectime(rec))
+        else :
+            #Doesn't work pre 3.7, removed.
+            #lastonline = datetime.datetime.fromisoformat(rec['last_live']).strftime("%m/%d/%Y")
+            lastonline = "Last online: " + datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z').strftime("%m/%d/%Y")
+        myembed.add_field(name=lastonline,value="Gaming: " + ("Yes" if rec['gaming'] else "No"),inline=True)
         myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
         myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
         return myembed

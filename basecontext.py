@@ -115,6 +115,10 @@ class APIContext :
         '''Whether the API sets the stream as Adult. Defaults to False.'''
         return False
 
+    async def getrectime(self,rec) :
+        '''Time that a stream has ran, determined from the API data. Defaults to 0s'''
+        return datetime.timedelta()
+
     #Get saved message id
     async def getmsgid(self,guildid,recid) :
         try :
@@ -192,8 +196,7 @@ class APIContext :
 
     #Function to get length of time a stream was running for, based on a message
     #snowflake.
-    async def streamtime(self,snowflake,offset=None,longtime=False) :
-        dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
+    async def streamtime(self,dur,offset=None,longtime=False) :
         if offset :
             dur -= datetime.timedelta(minutes=offset)
         hours, remainder = divmod(dur.total_seconds(),3600)
@@ -215,13 +218,25 @@ class APIContext :
         else :
             return "{0}h:{1:02d}m.".format(int(hours),int(minutes))
 
+    async def longertime(self,snowflake,rec) :
+        '''Returns the longer of two durations - the time since the snowflake,
+        and the time since the stream came online, from getrectime.
+        Returns a datetime.timedelta object.'''
+        rectime = await self.getrectime(rec)
+        if snowflake :
+            dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
+        else :
+            dur = datetime.timedelta()
+        return max(rectime,dur)
+
     #Function to generate a string to say how long stream has lasted
-    async def streammsg(self,snowflake,offline=False) :
+    async def streammsg(self,snowflake,rec,offline=False) :
+        dur = await self.longertime(snowflake,rec)
         if offline :
-            timestr = await self.streamtime(snowflake,offlinewait)
+            timestr = await self.streamtime(dur,offlinewait)
             retstr = "Stream lasted for "
         else :
-            timestr = await self.streamtime(snowflake)
+            timestr = await self.streamtime(dur)
             retstr = "Stream running for "
         retstr += timestr
         return retstr
@@ -416,7 +431,7 @@ class APIContext :
                         oldmess = await channel.fetch_message(msgid)
                         newembed = oldmess.embeds[0].to_dict()
                         del newembed['image'] #Delete preview as they're not online
-                        newembed['title'] = await self.streammsg(self.savedmsg[server][recid],offline=True)
+                        newembed['title'] = await self.streammsg(self.savedmsg[server][recid],rec,offline=True)
                         newembed = discord.Embed.from_dict(newembed)
                         newmsg = recid + " is no longer online. Better luck next time!"
                         await oldmess.edit(content=newmsg,embed=newembed)
@@ -760,10 +775,11 @@ class APIContext :
                     msg += "\nMessages are currently stopped via the stop command."
                 await message.channel.send(msg)
             elif command[0] == 'announce' : #Reannounce any missing announcements
-                count = 0
+                clive = 0
+                canno = 0
                 for item in mydata["Servers"][message.guild.id]["Listens"] :
                         if item in self.parsed : #Stream is online
-                            count = count + 1
+                            clive = clive + 1
                             #Make sure we have a savedmsg, we're going to need it
                             if not (message.guild.id in self.savedmsg) :
                                 self.savedmsg[message.guild.id] = {}
@@ -771,7 +787,9 @@ class APIContext :
                             if not item in self.savedmsg[message.guild.id] :
                                 #print("Announcing",item)
                                 await self.announce(self.parsed[item],message.guild.id)
-                msg = "Announced " + str(count) + " stream(s) that are live, but not announced."
+                                canno = canno + 1
+                msg = "Found " + str(clive) + " live stream(s), found " + str(canno) + " stream(s) that needed an announcement."
+                #old message msg = "Announced " + str(canno) + " stream(s) that are live but not announced of " + str(clive) + " live streams."
                 if not self.lastupdate : #Note if the API update failed
                     msg += "\n**The last attempt to update API failed.** The API may be down. This will cause delays in announcing streams. Streams will be announced/edited/removed as needed when the API call succeeds."
                 await message.channel.send(msg)

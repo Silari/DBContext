@@ -19,6 +19,27 @@ twitchheader = apitoken.twitchheader
 if not twitchheader :
     raise Exception("You must provide a valid twitch header with access token for use!")
 
+def connect() :
+    global parsed
+    newrequest = request.Request('https://api.twitch.tv/helix/streams',headers=twitchheader)
+    newconn = request.urlopen(newrequest)
+    buff = newconn.read()
+    parsed = {item['user_name']:item for item in json.loads(buff)['data']}
+    return True
+
+#Gets the detailed information about a channel, non-async. only for testing.
+def getchannel(channelname) :
+    try :
+        newrequest = request.Request('https://api.twitch.tv/helix/streams?user_login=' + channelname,headers=twitchheader)
+        newconn = request.urlopen(newrequest)
+        buff = newconn.read()
+        if not buff :
+            return False
+        detchan = json.loads(buff)
+        return detchan['data'][0]
+    except :
+        return False
+
 import basecontext
 class TwitchContext(basecontext.APIContext) :
     defaultname = "twitch" #This is used to name this context and is the command
@@ -121,6 +142,15 @@ class TwitchContext(basecontext.APIContext) :
         else : #User type record
             return rec['display_name']
 
+    async def getrectime(self,rec) :
+        '''Time that a stream has ran, determined from the API data.'''
+        try :
+            #Time the stream began - given in UTC
+            began = datetime.datetime.strptime(rec['started_at'],"%Y-%m-%dT%H:%M:%SZ")
+        except KeyError : #May not have 'started_at' key, if offline?
+            return datetime.timedelta()
+        return datetime.datetime.utcnow() - began
+
     #The embed used by the default message type. Same as the simple embed except
     #that was add on a preview of the stream.
     async def makeembed(self,rec,snowflake=None,offline=False) :
@@ -138,7 +168,7 @@ class TwitchContext(basecontext.APIContext) :
         if not snowflake :
             embtitle = rec['user_name'] + " has come online!"
         else :
-            embtitle = await self.streammsg(snowflake,offline)
+            embtitle = await self.streammsg(snowflake,rec,offline)
         noprev = discord.Embed(title=embtitle,url="https://twitch.tv/" + rec['user_name'],description=description)
         noprev.add_field(name="Game: " + await self.getgame(rec['game_id']),value="Viewers: " + str(rec['viewer_count']),inline=True)
         return noprev
