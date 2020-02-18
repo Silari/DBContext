@@ -294,9 +294,9 @@ class APIContext :
         except aiohttp.ServerTimeoutError :
             rec = False #Also a connection problem.
         except asyncio.TimeoutError :
-            rec = False #Exceeded the timeout we set - 60 seconds.
+            rec = None #Exceeded the timeout we set - 60 seconds.
         except json.JSONDecodeError : #Error in reading JSON - bad response from server?
-            print("JSON Error in",self.name) #Log this, since it shouldn't happen.
+            print("JSON Error in",self.name,"buff:",buff) #Log this, since it shouldn't happen.
             rec = False #This shouldn't happen since status == 200
         return rec
 
@@ -421,10 +421,11 @@ class APIContext :
                 msgid = await self.getmsgid(server,recid)
                 #We don't have a saved message for this, so do nothing.
                 if not msgid :
-                    pass
+                    continue
                 #Either the MSG option is not set, or is set to edit, which is the default
                 #We should edit the message to say they're not online
-                elif not ("MSG" in mydata["Servers"][server]) or mydata["Servers"][server]["MSG"] == "edit" :
+                msgopt = await self.getoption(server,"MSG",recid)
+                if msgopt == "edit" :
                     #channel = self.client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     channel = await self.resolvechannel(server,recid)
                     if channel : #We may not have a channel if we're no longer in the guild/channel
@@ -436,12 +437,13 @@ class APIContext :
                         newmsg = recid + " is no longer online. Better luck next time!"
                         await oldmess.edit(content=newmsg,embed=newembed)
                 #We should delete the message
-                elif mydata["Servers"][server]["MSG"] == "delete" :
+                elif msgopt == "delete" :
                     #channel = self.client.get_channel(mydata["Servers"][server]["AnnounceChannel"])
                     channel = await self.resolvechannel(server,recid)
                     if channel :
                         oldmess = await channel.fetch_message(msgid)
                         await oldmess.delete()
+                #Only other possible value is 'static' in which case we'd do nothing.
             except KeyError as e :
                 #We should've prevented any of these, so note that it happened.
                 print(self.name,"remove message keyerror:", repr(e))
@@ -461,9 +463,9 @@ class APIContext :
                 pass
             #Remove the msg from the list, we won't update it anymore.
             #This still happens for static messages, which aren't edited or removed
-            try : #They might not have a message saved, ignore that
+            try : 
                 del self.savedmsg[server][recid]
-            except KeyError :
+            except KeyError : #They might not have a message saved, ignore that
                 pass
 
     async def updatemsg(self,rec) :
@@ -473,11 +475,13 @@ class APIContext :
         mydata = self.mydata #Ease of use and speed reasons
         recid = await self.getrecname(rec) #Keep record name cached, we need it a lot.
         for server in mydata['AnnounceDict'][recid] :
-            #If Type is simple, don't do this
-            if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "simple" :
+            typeopt = await self.getoption(server,"Type",recid)
+            msgopt = await self.getoption(server,"MSG",recid)
+            #If Type is simple, there's nothing to edit so skip it.
+            if typeopt == "simple" :
                 continue
             #If MSG option is static, we don't update.
-            elif "MSG" in mydata["Servers"][server] and mydata["Servers"][server]["MSG"] == "static" :
+            elif msgopt == "static" :
                 continue
             #If we don't have a saved message, we can't update.
             msgid = await self.getmsgid(server,recid)
@@ -513,7 +517,7 @@ class APIContext :
                     pass
                 if oldmess :
                     try :
-                        if "Type" in mydata["Servers"][server] and mydata["Servers"][server]["Type"] == "noprev" :
+                        if typeopt == "noprev" :
                                 await oldmess.edit(content=oldmess.content,embed=noprev)
                         else :
                             await oldmess.edit(content=oldmess.content,embed=myembed)
@@ -581,13 +585,19 @@ class APIContext :
         mydata = self.mydata #Ease of use and speed reasons
         rec = await self.agetchannel(recid)
         channel = await self.resolvechannel(oneserv,recid)
+        if rec == None :
+            msg = "Timeout reached attempting API call. Please try again later."
+            if not self.lastupdate : #Note if the API update failed
+                msg += "\n**Last attempt to update API also failed. API may be down.**"
+            await channel.send(msg)
+            return
         if not rec :
             try :
                 msg = "Sorry, I failed to load information about that channel. Check your spelling and try again."
                 if not self.lastupdate : #Note if the API update failed
                     msg += "\n**Last attempt to update API failed. API may be down.**"
                 await channel.send(msg)
-            except KeyError :
+            except KeyError : #Nothing left to have this but keep it for now.
                 pass
             return #Only announce on that server, then stop.
         myembed = await self.makedetailembed(rec)

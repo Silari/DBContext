@@ -10,6 +10,7 @@ import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
+import datetime
 
 parsed = {} #Dict with key == 'user_name'
 lastupdate = [] #Did the last update succeed?

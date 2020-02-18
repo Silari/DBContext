@@ -16,6 +16,7 @@
 #Start using getoption for anything that needs to get an option. That provides
 #free support for any of the overrides/global options/etc. Especially announce
 #stuff - creation/editing.
+##Basecontext done
 
 #Really need to fix a lot of the error handling. When I was writing it it was
 #better to just catch stuff and ignore it but a lot of keyerror things shouldn't
@@ -115,8 +116,11 @@ changelog = {}
 changelog["0.9"] = '''0.9 from 0.8 Changelog:
 GENERAL
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
+Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream. Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
 Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
 announce and help commands will now include a message if the last API update failed.
+API reads will return None if the API call timed out, allowing for more detailed error messages.
+  Currently, detailannounce will explicitly state if the API call timed out.
 BACKGROUND
 streamtime only uses a duration instance to calculate time instead of a Discord snowflake.
 Added getrectime to basecontext, picarto, twitch, and piczel classes. Uses API info to get the length of a stream. Limited use on Picarto due to API constraints.

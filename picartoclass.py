@@ -62,7 +62,7 @@ class PicartoContext(basecontext.APIContext) :
         '''Time that a stream has ran, determined from the API data.'''
         try :
             #Time the stream began
-            print("getrectime",rec)
+            #print("getrectime",rec)
             began = datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
         except KeyError : #May not have last_live, ONLY detailed records have that.
             return datetime.timedelta()
