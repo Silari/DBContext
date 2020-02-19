@@ -13,6 +13,14 @@
 
 #Todo for 0.9:
 #VERY IMPORTANT
+#when making the embeds in updatemsg, it uses the snowflake from the first server
+#it iterates over. If that server had the msg made AFTER (like, stream was just added)
+#then the time would be different, compared to if it had made it later. I can grab
+#ALL the server's savedmsg if they have <recid> and find the lowest one. that'd give
+#the most accurate time.
+#DONE. Also we can save time if no announcements exist to update. Doesn't happen
+#often but it's there. Testing.
+
 #Start using getoption for anything that needs to get an option. That provides
 #free support for any of the overrides/global options/etc. Especially announce
 #stuff - creation/editing.
@@ -116,7 +124,8 @@ changelog = {}
 changelog["0.9"] = '''0.9 from 0.8 Changelog:
 GENERAL
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
-Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream. Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
+Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream.
+  Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
 Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
 announce and help commands will now include a message if the last API update failed.
 API reads will return None if the API call timed out, allowing for more detailed error messages.

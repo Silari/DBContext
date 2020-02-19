@@ -469,11 +469,19 @@ class APIContext :
                 pass
 
     async def updatemsg(self,rec) :
-        #We'll need these later, but can't make them quite yet
-        myembed = None
-        noprev = None
-        mydata = self.mydata #Ease of use and speed reasons
         recid = await self.getrecname(rec) #Keep record name cached, we need it a lot.
+        allsaved = {k:v[recid] for (k,v) in self.savedmsg.items() if recid in v}
+        if allsaved : #List MAY be empty if no announcements were made
+            oldest = min(allsaved.values())
+            #print("updatemsg",allsaved,"@@@",oldest)
+            myembed = await self.makeembed(rec,oldest)
+            noprev = await self.simpembed(rec,oldest)
+        else :
+            #If allsaved was empty, we don't have any saved messages to update.
+            #So we can just stop now and save time.
+            #print("updatemsg found no saved!")
+            return
+        mydata = self.mydata #Ease of use and speed reasons
         for server in mydata['AnnounceDict'][recid] :
             typeopt = await self.getoption(server,"Type",recid)
             msgopt = await self.getoption(server,"MSG",recid)
@@ -483,13 +491,10 @@ class APIContext :
             #If MSG option is static, we don't update.
             elif msgopt == "static" :
                 continue
-            #If we don't have a saved message, we can't update.
+            #Get the saved msg for this server
             msgid = await self.getmsgid(server,recid)
+            #If we don't have a saved message, we can't update.
             if msgid :
-                #If we haven't made the embeds yet, do it now using the msg ID
-                if not myembed : #This lets us only make the embed needed ONCE for each stream
-                    myembed = await self.makeembed(rec,self.savedmsg[server][recid])
-                    noprev = await self.simpembed(rec,self.savedmsg[server][recid])
                 #Try and grab the old message we saved when posting originally
                 oldmess = None
                 try :
