@@ -10,7 +10,7 @@ import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
-import datetime
+import datetime #Stream durations, time online, etc.
 
 parsed = {} #Dict with key == 'user_name'
 lastupdate = [] #Did the last update succeed?
@@ -71,9 +71,13 @@ class TwitchContext(basecontext.APIContext) :
     async def updateparsed(self) :
         #Twitch is different since you can't get all online streams - there's far
         #too many. Instead we only grab watched channels in groups.
-        found = {}
-        updated = False
-        self.lastupdate.clear() #Update has not succeded.
+        found = {} #Used to hold the records from API call
+        updated = False #Tracks if this attempt succeeded.
+        self.lastupdate.clear() #Clear the stored value for if we succeeded.
+        #If one or more calls succeded, we could have a partial update. To avoid
+        #that, we gather the data into found first, then if we finish without
+        #any errors, we copy that data over self.parsed. If an error occurs at
+        #any point, we leave the loop and discard any data we gathered
         try :
             #We split the streams we need to check into chunks, due to the API
             #limit of 100 streams per call.
@@ -83,14 +87,18 @@ class TwitchContext(basecontext.APIContext) :
                 if loaded : #We got a response back
                     found.update({item['user_name']:item for item in loaded['data']})
                 else :
+                    #We didn't get any data back, thus the update failed.
+                    #IMPORTANT NOTE: even if no one was online, we'd still have
+                    #gotten back data - loaded['data'] would exist, just with 0
+                    #items in it.
                     raise ValueError()
             updated = True #We finished our loop so updates are complete.
         except ValueError as e : #Not success, or empty buffer.
-            #Updated should be False anyway, but jic
             updated = False #Errors mean bad things happened, so skip this update
-        if updated :
+        if updated : #Only replace parsed data if we succeeded
             self.parsed = found
-            self.lastupdate.append(updated) #Not empty means list is True, update succeeded
+            #Completed successfully, update the tracking variable
+            self.lastupdate.append(updated) 
         return updated
 
     #Gets the detailed information about a channel. Used for makedetailmsg.
@@ -103,7 +111,7 @@ class TwitchContext(basecontext.APIContext) :
             return detchan['data'][0]
         return False
 
-    #Gets the detailed information about a running stream
+    #Gets the detailed information about a stream
     async def agetchannel(self,channelname,headers=None) :
         #Call the API with our channel url, using the twitch header
         detchan = await self.acallapi(self.channelurl.format(channelname),headers=twitchheader)
@@ -138,9 +146,9 @@ class TwitchContext(basecontext.APIContext) :
         #Should return the name of the record used to uniquely id the stream.
         #Generally, rec['name'] or possibly rec['id']. Used to store info about
         #the stream, such as who is watching and track announcement messages.
-        if 'user_name' in rec : #Stream type record
+        if 'user_name' in rec : #Stream type record, ie online streams
             return rec['user_name']
-        else : #User type record
+        else : #User type record - ie offline record used by detailannounce
             return rec['display_name']
 
     async def getrectime(self,rec) :
@@ -149,6 +157,8 @@ class TwitchContext(basecontext.APIContext) :
             #Time the stream began - given in UTC
             began = datetime.datetime.strptime(rec['started_at'],"%Y-%m-%dT%H:%M:%SZ")
         except KeyError : #May not have 'started_at' key, if offline?
+            #This creates an empty timedelta - 0 seconds long. It'll never be
+            #the longest duration, so it's discarded later.
             return datetime.timedelta()
         return datetime.datetime.utcnow() - began
 
@@ -182,7 +192,7 @@ class TwitchContext(basecontext.APIContext) :
         #if the stream is offline, than if it is online.
         if 'user_id' in rec : #user_id field is only on streams, not users
             description = rec['title']
-            myembed = discord.Embed(title=rec['user_name'] + " is online!",url="https://twitch.tv/" + rec['user_name'],description=description)
+            myembed = discord.Embed(title=rec['user_name'] + " is online for " + await self.streamtime(await self.getrectime(rec)) + "!",url="https://twitch.tv/" + rec['user_name'],description=description)
             myembed.add_field(name="Game: " + await self.getgame(rec['game_id']),value="Viewers: " + str(rec['viewer_count']),inline=True)
             myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480") + "?msgtime=" + str(int(time.time())))
             msg = rec['user_name'] + " has come online! Watch them at <" + "https://twitch.tv/" + rec['user_name'] + ">"

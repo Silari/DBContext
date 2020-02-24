@@ -1,35 +1,42 @@
 #discord bot with module based functionality.
 #Now based on discord.py version 1.2.5
 
-#Holdover todos from 0.8:
+#Completed and testing:
 #Add in "streamoption streamname <options>" for overriding options per stream?
 #getoption supports reading if set in ['COver'][guildid][rec]['Option'][option]
 #Done, not at all tested. Added new setstreamoption which handles the setting,
 #including making the nested dicts.
+#Fixed setstreamoption using message.guild.id instead of guildid, so it literally hasn't been
+#used once since it was written, not tested even the slightest bit.
 
-#Add messages when using certain commands if the API is currently down - ie failed last update
-##Done, test? add/addmult, detailannounce when failed, announce command, help
-#So far, they've been fine.
+#acallapi now returns 0 for 404, detailannounce uses. Needs testing. Needs adding
+#to other things that call the API, like add/addmult and such
+#Added to add - test. Also added msg if API down.
+
+#maybe rewrite stop to not clear the listen channel. Instead things would check
+#COver for the stop, possibly in getchannel - self.getoption(server,'Stop',recid)
+#is already being used in announce. Doing this would allow detailannounce to work
+#even if normal announcements are stopped.
+#getchannel doesn't check but stop is checked in announce. Need to also have
+#update and remove do it as well? Maybe not.
+#detailannounce will still work this way, which I want. It was specifically
+#requested so it should ignore a stop command.
+
+#test resume command! Really doesn't do much, so should be fine.
+
+#test listen command - should now explicitly state what channel it announces in
 
 #Todo for 0.9:
-#VERY IMPORTANT
-#when making the embeds in updatemsg, it uses the snowflake from the first server
-#it iterates over. If that server had the msg made AFTER (like, stream was just added)
-#then the time would be different, compared to if it had made it later. I can grab
-#ALL the server's savedmsg if they have <recid> and find the lowest one. that'd give
-#the most accurate time.
-#DONE. Also we can save time if no announcements exist to update. Doesn't happen
-#often but it's there. Testing.
-
-#Start using getoption for anything that needs to get an option. That provides
-#free support for any of the overrides/global options/etc. Especially announce
-#stuff - creation/editing.
-##Basecontext done
-
 #Really need to fix a lot of the error handling. When I was writing it it was
 #better to just catch stuff and ignore it but a lot of keyerror things shouldn't
 #happen anymore, and if it does something went wrong that I need logs of (like
 #the issue with announce not using getoption)
+#twitch, piczel, picarto, basecontext up to updatetask
+
+#I got getoption, I should make setoption to go with it. serverid, optname,
+#setting or None to clear.
+
+#Update the API class template for the new functions.
 
 #If set to listen in a channel, via listen or listen <chan>, PM the user setting
 #the message if the bot does not have view, or send message permission in the
@@ -39,19 +46,15 @@
 #reused if it comes back within 10 minutes. Basically just change the edit message
 #part to note that it is currently offline?
 
-#If the stream gives a time indication of when it started, use it. The earliest
-#time between stream start and message date could be used for determining stream
-#length.
-
 #Clean up various uses of server to guild, to match discord.py/Discord usage
 #instead of server.
+#Not sure this is feasible - for one I'd have to redo mydata['Servers'] and I'd
+#really rather not risk breaking my saved data. Even discord isn't great about
+#separating the two.
 ##Likewise, should ensure I always use stream to refer to a stream from picarto/etc
 ##and not channel, to avoid confusing the discord term with it.
 ###getchannel when i wanted resolvechannel already got me once, ffs
-####This means doing a lot of find/replace, so I'm holding off until next version
-
-#maybe rewrite stop to not clear the listen channel. Instead things would check
-#COver for the stop, possibly in getchannel
+#Started on the channel->stream fixes
 
 #Need some way to say that an API doesn't support an option, like twitch for adult
 #Thought about getoption=None but that's the fallback if it doesn't exist.
@@ -84,57 +87,50 @@
 ###whenever possible, rather than invoking it for each APIContext. Simpler.
 ####Deleting options is done in streamoption with the 'clear' option, which deletes em all.__call__
 
-#General TODO list/ideas:
-#maybe have it announce online channels if it hasn't announced them before -
-#ie was offline when they came online, rather than only when they first come online
-##This would require either constantly going through the entire online list and finding
-##which don't have a saved channel, or modifying updatewrapper to hold off on
-##the first update until it can use that to add any messages it needs to.
-###On the other hand, doing it that way would mean that I could save the savedmsgs
-###onto disk in case of shutdown, then on load match those back up automatically
-###to still running streams/edit them to offline if needed. That'd be nice.
-#Maybe a way to permalink a message to a stream so that it always edits that one
-#message instead, never making a new one. Seems kinda pointless, but easy enough
-#New option - 'single', that says to do this? ###Don't think I will cause you want
-###the new message so people get notified.
-#announce command makes this less important - users can manually say if they
-#want it to catch up, which is better since catching up all online streams could
-#be a lot of spamming at once.
+#Might want to rewrite remove/removemult to call a common function to handle
+#all the stuff that needs to be done to remove a channel. Save some code, easier
+#to update/fix with one location instead. Also, removemult doesn't allow ',' but
+#addmult does. Maybe fix that.
+#maybe can do similar for add/addmult.
 
-#Kinda similarly, something to move a savedmsg to a new channel if the channel
+#Something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
 #new one in the proper channel.
 
-#Should look and see if it's easy to determine stream length for picarto/twitch/piczel
-#The current version works ok, but if I do end up moving messages like above then
-#that'll reset the msgid, which resets the start time. If it's already present in
-#the record in parsed, should be easy enough to grab it. If not, then msgid is fine
-
-#@Bot announce - announces here for all?
-#@Bot announce <channel> - announce in <channel> for all?
-
-#All modules TODO
 #Option to @here - probably better handled by channel notifications user side
 ##Adding in the notify role instead, so that'd handle it just fine.
 
-#Redo detail announce so that it responds in the channel it was requested in?
+#Allow streamoption to set a override channel by adding a channel mention
+#When iterating options, ignore starts with <#/ends with > (see addmult for code)
+#then just grab last item from list of channel mentions (if exists) and set that
 
 version = 0.9 #Current bot version
 changelog = {}
 changelog["0.9"] = '''0.9 from 0.8 Changelog:
 GENERAL
+Added resume command - resumes announcements after stop command
+  stop command no longer unsets the announcement channel
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
 Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream.
   Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
+Added stream length time to picarto/piczel/twitch detail announce, rearranged order of items.
+Added follower count to piczel detailed announce.
 Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
 announce and help commands will now include a message if the last API update failed.
 API reads will return None if the API call timed out, allowing for more detailed error messages.
   Currently, detailannounce will explicitly state if the API call timed out.
+API reads will return 0 if the API returns a Not Found error.
+  Currently, add and detailannounce will explicitly state if the requested stream was not found.
+Added missing help description for manage create command.
+Fixed add command always stating the message channel was being used for announcements even when mentioning a channel
 BACKGROUND
+Moved check in add for too many streams to first test
 streamtime only uses a duration instance to calculate time instead of a Discord snowflake.
 Added getrectime to basecontext, picarto, twitch, and piczel classes. Uses API info to get the length of a stream. Limited use on Picarto due to API constraints.
 streammsg now uses the longer of getrectime and the message snowflake when determining stream length.
 Fixed basecontext embed functions not having 'snowflake' parameter.
+basecontext uses getmsgid to retrieve saved messages in all locations.
+Remove trailing period from streamtime short response.
 '''
 changelog["0.8"] = '''0.8 from 0.7 Changelog:
 GENERAL
@@ -501,7 +497,7 @@ async def getuserrole(guild) :
         #Named after the bot, no permissions, no color, non-hoist, non-mentionable.
         try :
             userrole = await guild.create_role(reason="Role created for bot management",name=client.user.name)
-        except : #May not have permission, dunno what else.
+        except discord.Forbidden : #May not have permission
             pass #This should leave userrole as none
     return userrole
 
@@ -524,7 +520,8 @@ async def managehandler(command, message) :
     message.guild.me.top_role.position
     if command[0] == 'help' :
         msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
-        msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands."
+        msg += "\ncreate <#channel>: Creates the user role to manage the bot, and adds an override to allow them to send messages in #channel. #channel MUST be a channel mention."
+        msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands. Separate user names with spaces."
         msg += "\nadd <username#0000>: Gives permission to one or more users to access bot commands. Note that bot accounts are ALWAYS ignored."
         msg += "\nremove <username#0000>: Revokes permission to one or more users to access bot commands. Note that channel admins ALWAYS have bot access!"
         if not message.channel.permissions_for(message.guild.me).manage_roles :
@@ -641,17 +638,17 @@ newcontext("manage",managehandler,{})
 
 async def debughandler(command, message) :
     #'safe' commands like help can go up here
-    if len(command) > 0 and command[0] == 'help' :
+    #If there wasn't a command given, or the command was help
+    if len(command) == 0 or command[0] == 'help' :
         msg = "Debug module. This module is used for debugging/testing and notifying servers of updates/downtimes/etc."
         msg += "\nIt can not be used by anyone other than the bot developer."
         await message.channel.send(msg)
         return
+    #Unsafe commands go down here
     if not (message.author.id == 273076937474441218) :
         #print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         #await message.channel.send("Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
-        return
-    if len(command) == 0 :
         return
     if command[0] == 'embed' :
         rec = await picartocontext.agetchannel(command[1])
@@ -677,6 +674,7 @@ async def debughandler(command, message) :
         await message.channel.send(msg)
     elif command[0] == 'replyeval' :
         msg = eval(" ".join(command[1:]))
+        #print(msg)
         await message.channel.send(msg)
     elif command[0] == 'sendall' :
         await sendall(" ".join(command[1:]))
@@ -719,14 +717,8 @@ async def sendall(msg) :
     #print("sendall:",msgset)
     for servchan in msgset :
             channel = client.get_channel(servchan)
-            #channel = client.get_channel(mydata['Servers'][server]["AnnounceChannel"])
             if channel : #We may no longer be in the server which would mean no channel
                 await channel.send(msg)
-
-#I don't remember what this was for.
-#I think it was a debug thing which isn't needed due to the debug context
-def sendmessage(channel,chanid) :
-    pass
 
 #Message contains:
 #author - Member that sent message, or User if PM
@@ -775,23 +767,25 @@ async def on_member_update(before, after) :
         userrole = discord.utils.find(lambda m: m.id == 336063609815826444, after.guild.roles)
         await after.add_roles(userrole,reason="Re-adding removed patreon role")
 
+#The main event handler: handles all incoming messages and assigns them to the
+#proper context/replies to DMs.
 @client.event
 async def on_message(message):
     #Ignore messages we sent
+    #print("on_message")
     if message.author == client.user :
         return
-    else :
-        pass
     #We ignore any messages from other bots. Could lead to bad things.
-    if message.author.bot :
+    elif message.author.bot :
         return
-    #Currently we ignore PMs. Later, this will prompt the basic help dialog.
+    #print("not us or a bot")
     if not message.guild : #PMs just get a help dialog and then we're done.
         msg = client.user.name + " bot version " + str(version)
         msg += "\nPlease use '@" + client.user.name + " help' in a server channel for help on using the bot."
         msg += "\nOnline help is also available at <" + helpurl + ">."
         await message.channel.send(msg)
         return
+    #print("not a PM")
     hasrole = False
     #Check if one of the users roles matches the bot's name
     for item in message.author.roles :
@@ -799,8 +793,11 @@ async def on_message(message):
         if client.user.name == item.name :
             hasrole = True
             #print(hasrole, item.name, client.user.name)
+    #print("hasrole", hasrole,":",message.author.guild_permissions.administrator)
     #The bot listens to anyone who is an admin, or has a role named after the bot
     if message.author.guild_permissions.administrator or hasrole :
+        #print("passed check",message.content)
+        #print('<@!' + str(client.user.id) + ">",":",client.user.mention)
         if message.content.startswith('<@!' + str(client.user.id) + ">") :
             command = message.content.split()
             #print("Listening for message", len(command))
@@ -810,6 +807,7 @@ async def on_message(message):
                 msg += "\nOnline help is available at <" + helpurl + ">."
                 await message.channel.send(msg)
             elif command[1] in contexts :
+                #print("calling module",command[1], command[2:])
                 async with message.channel.typing() :
                     await getcontext(command[1],message)
             else :
@@ -823,19 +821,22 @@ async def on_message(message):
 
 @client.event
 async def on_resumed() :
-    #Ensure our activity is set when resuming.
+    #Ensure our activity is set when resuming and add a log that it resumed.
     print("Client resumed")
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
+#Fires when the bot is up and running. Sets our presence and logs the connection
 @client.event
 async def on_ready() :
     print("------\nLogged in as")
     print(client.user.name)
     print(client.user.id)
     print("------")
-    #We set our activity here - we can't do it in the client creation because we don't have the user name yet
+    #We set our activity here - we can't do it in the client creation because
+    #we didn't have the user name yet
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
+#Old method to close tasks and log out
 def closebot() :
     myloop.run_until_complete(client.logout())
     for t in asyncio.Task.all_tasks(loop=client.loop):
@@ -854,6 +855,7 @@ def closebot() :
             pass
     myloop.run_until_complete(asyncio.sleep(0.25))
 
+#Logs the bot out and ends all tasks
 async def aclosebot() :
     await client.logout()
     for t in asyncio.Task.all_tasks(loop=client.loop):
@@ -874,11 +876,14 @@ async def aclosebot() :
     await asyncio.sleep(0.25)
 
 async def savecontexts() :
+    '''Saves the data for all contexts to a file.'''
     try :
+        #Copy the current contexts into a new dictionary
         newcont = copy.deepcopy(contexts)
     except asyncio.CancelledError : #Task was cancelled, so quit.
         return
     except Exception as e :
+        #Any errors, log them as that's a serious problem.
         print("Error in deepcopy:",repr(e))
         #print(contexts)
         return
@@ -886,17 +891,20 @@ async def savecontexts() :
         #Dump contexts to a Bytes object - if it fails our file isn't touched
         buff = pickle.dumps(newcont,pickle.HIGHEST_PROTOCOL)
         with open('dbcontexts.bin',mode='wb') as f:
-                #Actually write the data to the buffer
+                #Now we actually write the data to the file
                 f.write(buff)
     except asyncio.CancelledError : #Task was cancelled, so quit.
+        #Note that closing will save the contexts elsewhere, so we don't care
+        #that we're potentially skipping a save here.
         return
     except Exception as e :
+        #Again, log errors as those are potentially serious.
         print("error in savecontext",repr(e))
         #print(newcont)
 
 async def savetask() :
-    #Saves data every five minutes. Stops immediately if client is closed so it
-    #won't interfere with the save on close.
+    #Calls savecontext every five minutes. Stops immediately if client is closed
+    #so it won't interfere with the save on close.
     while not client.is_closed() :
         try :
             #These were broken up into minute chunks to avoid a hang when closing
@@ -921,6 +929,7 @@ async def savetask() :
                 except Exception as e :
                     print("Error in savetask:", repr(e))
         except asyncio.CancelledError :
+            #Task was cancelled, so immediately exit. Bot is likely closing.
             return
 
 import signal
@@ -933,7 +942,8 @@ import signal
 signal.signal(signal.SIGTERM,closebot)
 
 async def makesession() :
-    #Setup our aiohttp.ClientSession to pass to our modules that need it
+    '''Creates an aiohttp.ClientSession instance, shared among all modules.'''
+    #We create a timeout instance to allow a max of 60 seconds per call
     mytime = aiohttp.ClientTimeout(total=60)
     #Note that individual requests CAN still override this, but for most APIs it
     #shouldn't take that long.
@@ -941,29 +951,31 @@ async def makesession() :
     return myconn
 
 async def startbot() :
-    myconn = await makesession()
+    '''Handles starting the bot, making the session, and starting tasks.'''
+    myconn = await makesession() #The shared aiohttp clientsession
     #Saves our context data periodically
     tasks.append(client.loop.create_task(savetask()))
     #Start our context modules' updatewrapper task, if they had one when adding.
     for modname in taskmods :
         #print("Starting task for:",modname.__name__)
+        #This starts the modules updatewrapper and passes the connection to it.
         tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
     try :
+        #Starts the discord.py client with our discord token.
         await client.start(token)
     #On various kinds of errors, close our background tasks, the bot, and the loop
     except SystemExit :
-        print("SystemExit or KBInt, closing")
-        #task.cancel()
-        for task in tasks :
+        print("SystemExit, closing")
+        for task in tasks : #Mark all tasks as cancelled
             task.cancel()
+        #Logs out bot and ensures tasks were properly stopped before moving on.
         await aclosebot()
     except KeyboardInterrupt :
-        print("SystemExit or KBInt, closing")
-        #task.cancel()
-        for task in tasks :
+        print("KBInt, closing")
+        for task in tasks : #Mark all tasks as cancelled
             task.cancel()
+        #Logs out bot and ensures tasks were properly stopped before moving on.
         await aclosebot()
-        return
     await myconn.close()
 
 def startupwrapper() :
@@ -1071,6 +1083,8 @@ def ignore_aiohttp_ssl_error(loop):
 
     loop.set_exception_handler(ignore_ssl_error)
 ignore_aiohttp_ssl_error(myloop)
+#END 3.7 to 3.7.3 only section
 
+#If the module was run, call our startup wrapper
 if __name__ == "__main__" :
     startupwrapper()
