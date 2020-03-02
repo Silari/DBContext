@@ -28,10 +28,10 @@ def connect() :
     parsed = {item['user_name']:item for item in json.loads(buff)['data']}
     return True
 
-#Gets the detailed information about a channel, non-async. only for testing.
-def getchannel(channelname) :
+#Gets the detailed information about a stream, non-async. only for testing.
+def getstream(streamname) :
     try :
-        newrequest = request.Request('https://api.twitch.tv/helix/streams?user_login=' + channelname,headers=twitchheader)
+        newrequest = request.Request('https://api.twitch.tv/helix/streams?user_login=' + streamname,headers=twitchheader)
         newconn = request.urlopen(newrequest)
         buff = newconn.read()
         if not buff :
@@ -67,10 +67,10 @@ class TwitchContext(basecontext.APIContext) :
             count += 100
 
     #Called to update the API data by basecontext's updatetask. When it's finished
-    #parsed should have the current list of online channels.
+    #parsed should have the current list of online streams.
     async def updateparsed(self) :
         #Twitch is different since you can't get all online streams - there's far
-        #too many. Instead we only grab watched channels in groups.
+        #too many. Instead we only grab watched streams in groups.
         found = {} #Used to hold the records from API call
         updated = False #Tracks if this attempt succeeded.
         self.lastupdate.clear() #Clear the stored value for if we succeeded.
@@ -101,10 +101,10 @@ class TwitchContext(basecontext.APIContext) :
             self.lastupdate.append(updated) 
         return updated
 
-    #Gets the detailed information about a channel. Used for makedetailmsg.
-    #It returns a channel record.
-    async def agetchanneloffline(self,channelname) :
-        detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + channelname,headers=twitchheader)
+    #Gets the detailed information about a stream. Used for makedetailmsg.
+    #It returns a stream record.
+    async def agetstreamoffline(self,streamname) :
+        detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + streamname,headers=twitchheader)
         if not detchan :
             return False
         if detchan['data'] :
@@ -112,16 +112,16 @@ class TwitchContext(basecontext.APIContext) :
         return False
 
     #Gets the detailed information about a stream
-    async def agetchannel(self,channelname,headers=None) :
-        #Call the API with our channel url, using the twitch header
-        detchan = await self.acallapi(self.channelurl.format(channelname),headers=twitchheader)
+    async def agetstream(self,streamname,headers=None) :
+        #Call the API with our channelurl, using the twitch header
+        detchan = await self.acallapi(self.channelurl.format(streamname),headers=twitchheader)
         if not detchan :
             return False
         #If we have a record in 'data' then the stream is online
         if detchan['data'] :
             return detchan['data'][0]
         else : #Stream isn't online so grab the offline data.
-            return await self.agetchanneloffline(channelname)
+            return await self.agetstreamoffline(streamname)
 
     #Gets the name of the game with gameid. Uses a caching system to prevent
     #unneeded lookups.
@@ -137,7 +137,9 @@ class TwitchContext(basecontext.APIContext) :
             self.mydata['Games'][gameid] = detchan['name']
             return detchan['name']
         except Exception as e:
-            print("Error in game name:",repr(e))
+            #We had an issue, so print the issue, the error, what ID we tried to
+            #get, and the entire returned buffer for inspection.
+            print("Error in game name:",repr(e), ":", repr(gameid), ":", buff)
             return "Error getting game name: " + str(gameid)
         #Find the name of the game using the twitch API here
         return "No name found: " + str(gameid)
@@ -166,7 +168,7 @@ class TwitchContext(basecontext.APIContext) :
     #that was add on a preview of the stream.
     async def makeembed(self,rec,snowflake=None,offline=False) :
         #You can remove this function and baseclass will just use the simpembed
-        #Simple embed is the same, we just need to add a preview image. Save code
+        #Simple embed is the same, we just need to add a preview image.
         myembed = await self.simpembed(rec,snowflake,offline)
         myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480") + "?msgtime=" + str(int(time.time()))) #Add your image here
         return myembed
@@ -184,8 +186,8 @@ class TwitchContext(basecontext.APIContext) :
         noprev.add_field(name="Game: " + await self.getgame(rec['game_id']),value="Viewers: " + str(rec['viewer_count']),inline=True)
         return noprev
 
-    async def makedetailembed(self,rec,snowflake=None,offline=False) :
-        #This generates the embed to send when detailed info about a channel is
+    async def makedetailembed(self,rec,showprev=True) :
+        #This generates the embed to send when detailed info about a stream is
         #requested. The actual message is handled by basecontext's detailannounce
         myembed = None
         #This is more complicated since there is a different record type needed
@@ -194,7 +196,8 @@ class TwitchContext(basecontext.APIContext) :
             description = rec['title']
             myembed = discord.Embed(title=rec['user_name'] + " is online for " + await self.streamtime(await self.getrectime(rec)) + "!",url="https://twitch.tv/" + rec['user_name'],description=description)
             myembed.add_field(name="Game: " + await self.getgame(rec['game_id']),value="Viewers: " + str(rec['viewer_count']),inline=True)
-            myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480") + "?msgtime=" + str(int(time.time())))
+            if showprev :
+                myembed.set_image(url=rec['thumbnail_url'].replace("{width}","848").replace("{height}","480") + "?msgtime=" + str(int(time.time())))
             msg = rec['user_name'] + " has come online! Watch them at <" + "https://twitch.tv/" + rec['user_name'] + ">"
         else : #We have a user record, due to an offline stream.
             description = rec['description'][:150]

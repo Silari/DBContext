@@ -1,60 +1,28 @@
 #discord bot with module based functionality.
-#Now based on discord.py version 1.2.5
+#Now based on discord.py version 1.3.2
+
+#TESTING NOTES
+#NEED to rename dbcontexts.bin and double check everything works still. Might be
+#some spots I forgot to check that certain things exist. The default dicts should
+#handle the major sections, but I don't think I tested that.
 
 #Completed and testing:
-#Add in "streamoption streamname <options>" for overriding options per stream?
-#getoption supports reading if set in ['COver'][guildid][rec]['Option'][option]
-#Done, not at all tested. Added new setstreamoption which handles the setting,
-#including making the nested dicts.
-#Fixed setstreamoption using message.guild.id instead of guildid, so it literally hasn't been
-#used once since it was written, not tested even the slightest bit.
 
-#acallapi now returns 0 for 404, detailannounce uses. Needs testing. Needs adding
-#to other things that call the API, like add/addmult and such
-#Added to add - test. Also added msg if API down.
-
-#maybe rewrite stop to not clear the listen channel. Instead things would check
-#COver for the stop, possibly in getchannel - self.getoption(server,'Stop',recid)
-#is already being used in announce. Doing this would allow detailannounce to work
-#even if normal announcements are stopped.
-#getchannel doesn't check but stop is checked in announce. Need to also have
-#update and remove do it as well? Maybe not.
-#detailannounce will still work this way, which I want. It was specifically
-#requested so it should ignore a stop command.
-
-#test resume command! Really doesn't do much, so should be fine.
-
-#test listen command - should now explicitly state what channel it announces in
+#TWITCH
+#game_id seems to be empty sometimes. Am now printing entire buffer.
+#might need to add a hardcoded thing for == ''
 
 #Todo for 0.9:
-#Really need to fix a lot of the error handling. When I was writing it it was
-#better to just catch stuff and ignore it but a lot of keyerror things shouldn't
-#happen anymore, and if it does something went wrong that I need logs of (like
-#the issue with announce not using getoption)
-#twitch, piczel, picarto, basecontext up to updatetask
+#Update to discord.py 1.3.2!
 
-#I got getoption, I should make setoption to go with it. serverid, optname,
-#setting or None to clear.
+#I still need to have the bot check if it doesn't have send_message perms in the
+#listen channel. It won't always be the channel the message was sent in!
 
 #Update the API class template for the new functions.
-
-#If set to listen in a channel, via listen or listen <chan>, PM the user setting
-#the message if the bot does not have view, or send message permission in the
-#channel given.
 
 #Rewrite the messages so they're marked offline quicker, with the message being
 #reused if it comes back within 10 minutes. Basically just change the edit message
 #part to note that it is currently offline?
-
-#Clean up various uses of server to guild, to match discord.py/Discord usage
-#instead of server.
-#Not sure this is feasible - for one I'd have to redo mydata['Servers'] and I'd
-#really rather not risk breaking my saved data. Even discord isn't great about
-#separating the two.
-##Likewise, should ensure I always use stream to refer to a stream from picarto/etc
-##and not channel, to avoid confusing the discord term with it.
-###getchannel when i wanted resolvechannel already got me once, ffs
-#Started on the channel->stream fixes
 
 #Need some way to say that an API doesn't support an option, like twitch for adult
 #Thought about getoption=None but that's the fallback if it doesn't exist.
@@ -85,13 +53,20 @@
 ###Previously this was going to be through manage setopt, but thinking about it
 ###I'd rather make a new module for it, options, and direct things to use that
 ###whenever possible, rather than invoking it for each APIContext. Simpler.
-####Deleting options is done in streamoption with the 'clear' option, which deletes em all.__call__
+####Deleting options is done in streamoption with the 'clear' option, which deletes em all.
+
+#SIMILAR TO ABOVE: maybe a dict with the allowed option TYPES? Then again that
+#could be gotten from the defaultopts list maybe? Except that's global! so mods
+#can't access it directly.
+##Maybe a dict with {'OptName':set(val1,val2,val3),'OptName2':set(True,False)}
+##Then I have an easy to access and change list of groups and their allowed
+#values
 
 #Might want to rewrite remove/removemult to call a common function to handle
-#all the stuff that needs to be done to remove a channel. Save some code, easier
-#to update/fix with one location instead. Also, removemult doesn't allow ',' but
-#addmult does. Maybe fix that.
+#all the stuff that needs to be done to remove a stream. Save some code, easier
+#to update/fix with one location instead.
 #maybe can do similar for add/addmult.
+#Also, removemult doesn't allow ',' but addmult does. Maybe fix that.
 
 #Something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
@@ -104,25 +79,43 @@
 #When iterating options, ignore starts with <#/ends with > (see addmult for code)
 #then just grab last item from list of channel mentions (if exists) and set that
 
+#TODO for 1.0
+#Remove client from contexts. They don't need it for send_message anymore
+#Currently only used for get_channel and wait_until_ready
+
+#Redo the updatetask to not bother with DBCOffline/DBCOnline unless the stream
+#is in mydata['AnnounceDict']. If no one is watching a stream, we can just remove
+#it immediately. Looks like curstreams does this already. Can probably fiddle
+#with it and merge the for old in removed with for gone in oldstreams.
+
+#Change announce to channel - all it really does now is set the default channel
+#Hell, maybe remove it entirely an use option instead?
+
 version = 0.9 #Current bot version
 changelog = {}
 changelog["0.9"] = '''0.9 from 0.8 Changelog:
 GENERAL
 Added resume command - resumes announcements after stop command
   stop command no longer unsets the announcement channel
+Added new adult options - showadult (default, show all adults streams), hideadult (adult streams never have a preview), and no adult (adult streams are not announced, hides preview if already announced).
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
+Added new option - clear. Removes all set options (except announce channel)
+Added streamoption command. Allows setting any option on a per stream basis, rather than server wide. Can also set announcement channel for the stream.
 Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream.
   Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
 Added stream length time to picarto/piczel/twitch detail announce, rearranged order of items.
 Added follower count to piczel detailed announce.
 Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
 announce and help commands will now include a message if the last API update failed.
+Fixed and updated help commands, rewrote some to add details/clarity. 
 API reads will return None if the API call timed out, allowing for more detailed error messages.
   Currently, detailannounce will explicitly state if the API call timed out.
 API reads will return 0 if the API returns a Not Found error.
   Currently, add and detailannounce will explicitly state if the requested stream was not found.
+announce handles Forbidden errors when sending the announcement.
 Added missing help description for manage create command.
 Fixed add command always stating the message channel was being used for announcements even when mentioning a channel
+Fixed listen always using the message channel as the listen target, even when mentioning a channel.
 BACKGROUND
 Moved check in add for too many streams to first test
 streamtime only uses a duration instance to calculate time instead of a Discord snowflake.
@@ -428,10 +421,12 @@ async def helphandler(command, message) :
             msg = client.user.name + " bot version " + str(version)
             msg += ". Please use the 'help changelog' command for update details."
             await message.channel.send(msg)
+            return
         elif command[0] == "versions" :
             msg = "The following versions of PicartoWatch exist: "
             msg += ", ".join(changelog)
             await message.channel.send(msg)
+            return
         elif command[0] == "changelog" :
             #print(len(command))
             if len(command) == 1 :
@@ -442,30 +437,32 @@ async def helphandler(command, message) :
             except (KeyError, ValueError) as e :
                 msg = "No changelog exists for version " + str(command[1])
                 await message.channel.send(msg)
+            return
         elif command[0] == "help" :
             msg = "PicartoWatch bot version " + str(version)
             msg += "\nThe following commands are available for 'help':"
             msg += "\nhelp, changelog, invite, version, versions"
             await message.channel.send(msg)
+            return
         elif command[0] == 'invite' :
             msg = "I can be invited to join a server by an administrator of the server using the following links\n"
             msg += "\nNote that the link includes the permissions that I will be granted when joined.\n"
-            msg += "\nIf you do not wish to use the manage module: <" + invite + ">"
-            msg += "\nIf you wish to use the manage module: <" + roleinvite + ">"
-            msg += "\nNote that if the bot is already in your server, re-inviting will NOT reset permissions."
+            msg += "\nThe current link is: <" + roleinvite + ">"
+            msg += "\nIf the bot is already in your server, re-inviting will NOT change the current permissions."
             await message.channel.send(msg)
+            return
         elif command[0] in contfuncs : #User asking for help with a context.
             #Redirect the command to the given module.
             #print("cont help", ["help"] + command[1:])
             await contfuncs[command[0]](["help"] + command[1:],message)
-    else :
-        msg = "PicartoWatch bot version " + str(version)
-        msg += "\nOnline help and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
-        msg += "\nPlease use '<module> help' for help with specific modules"
-        msg += "\nThe following modules are available for use: " + ", ".join(contexts)
-        msg += "\nI listen to commands on any channel from users with the Administrator role in channel."
-        msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
-        await message.channel.send(msg)
+            return
+    msg = "PicartoWatch bot version " + str(version)
+    msg += "\nOnline help and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
+    msg += "\nPlease use '<module> help' for help with specific modules"
+    msg += "\nThe following modules are available for use: " + ", ".join(contexts)
+    msg += "\nI listen to commands on any channel from users with the Administrator role on the server."
+    msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
+    await message.channel.send(msg)
 
 newcontext("help",helphandler,{})
 
@@ -474,7 +471,7 @@ defaultopts = {
     'MSG':'edit', #Should messages be edited and/or removed after announcement?
     'Stop':False, #Should no new announcements be made?
     'Channel':None, #Default channel to announce in is no channel.
-    'Adult':True #Should streams marked adult be shown normally?
+    'Adult':'showadult' #Should streams marked adult be shown normally? 
 }
 
 globalops = {}
@@ -523,7 +520,7 @@ async def managehandler(command, message) :
         msg += "\ncreate <#channel>: Creates the user role to manage the bot, and adds an override to allow them to send messages in #channel. #channel MUST be a channel mention."
         msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands. Separate user names with spaces."
         msg += "\nadd <username#0000>: Gives permission to one or more users to access bot commands. Note that bot accounts are ALWAYS ignored."
-        msg += "\nremove <username#0000>: Revokes permission to one or more users to access bot commands. Note that channel admins ALWAYS have bot access!"
+        msg += "\nremove <username#0000>: Revokes permission to one or more users to access bot commands. Note that server admins ALWAYS have bot access!"
         if not message.channel.permissions_for(message.guild.me).manage_roles :
             msg += "\n**Bot does not** have permission to manage user roles. Only check and help commands are active."
             msg += "\Please manually add the 'manage roles' permission to make use of additional features."
@@ -651,7 +648,8 @@ async def debughandler(command, message) :
         #await message.channel.send("Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
         return
     if command[0] == 'embed' :
-        rec = await picartocontext.agetchannel(command[1])
+        #Debug to create detail embed from picarto stream
+        rec = await picartocontext.agetstream(command[1])
         description = rec['title']
         myembed = discord.Embed(title=rec['name'] + " has come online!",url="https://picarto.tv/" + rec['name'],description=description)
         value = "Multistream: No"
@@ -808,10 +806,27 @@ async def on_message(message):
                 await message.channel.send(msg)
             elif command[1] in contexts :
                 #print("calling module",command[1], command[2:])
-                async with message.channel.typing() :
-                    await getcontext(command[1],message)
+                #If we don't have permission to send messages in the channel, don't use
+                #the typing function as that would throw Forbidden.
+                if not message.channel.permissions_for(message.guild.me).send_messages :
+                    msg = "I do not have permission to respond in the channel you messaged me in. While I will still attempt to perform the command, any error or success messages will fail."
+                    try :
+                        await message.author.send(msg)
+                    except discord.Forbidden : #We aren't allowed to DM the user
+                        pass #nothing to do here
+                    #This is a separate block because we need to do both even if
+                    #the first fails, and we still need to ignore Forbidden in
+                    #the second part.
+                    try :
+                        await getcontext(command[1],message)
+                    except discord.Forbidden : #Chances are we're going to fail
+                        pass #still nothing to do here
+                else :
+                    #If we can send messages, use the context manager
+                    async with message.channel.typing() :
+                        await getcontext(command[1],message)
             else :
-                msg = "Unknown command '" + command[1] + "'."
+                msg = "Unknown module '" + command[1] + "'. Remember, you must specify the module name before the command - e.g. 'picarto " + " ".join(command[1:]) + "'"
                 await message.channel.send(msg)
 
 #Used when joining a server. Might want something for this.        

@@ -20,10 +20,10 @@ def connect() :
     parsed = {item['name']:item for item in json.loads(buff)}
     return True
 
-#Gets the detailed information about a channel. Non-async, debugging.
-def getchannel(channelname) :
+#Gets the detailed information about a stream. Non-async, debugging.
+def getstream(streamname) :
     try :
-        newrequest = request.Request("https://api.picarto.tv/v1/channel/name/" + channelname)
+        newrequest = request.Request("https://api.picarto.tv/v1/channel/name/" + streamname)
         newconn = request.urlopen(newrequest)
         buff = newconn.read()
         parsed = json.loads(buff)
@@ -36,7 +36,7 @@ class PicartoContext(basecontext.APIContext) :
     defaultname = "picarto" #This is used to name this context and is the command to call it. Must be unique.
     streamurl = "https://picarto.tv/{0}" #URL for going to watch the stream
     apiurl = "https://api.picarto.tv/v1/online?adult=true&gaming=true" #URL to call to find online streams
-    channelurl = "https://api.picarto.tv/v1/channel/name/{0}" #URL to call to get information on a single channel
+    channelurl = "https://api.picarto.tv/v1/channel/name/{0}" #URL to call to get information on a single stream
 
     def __init__(self,instname=None) :
         #Init our base class
@@ -90,7 +90,7 @@ class PicartoContext(basecontext.APIContext) :
         noprev.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
         return noprev
 
-    async def makedetailembed(self,rec,snowflake=None,offline=False) :
+    async def makedetailembed(self,rec,showprev=True) :
         description = rec['title']
         multstring = ""
         #If the stream is in a multi, we need to assemble the string that says
@@ -119,6 +119,7 @@ class PicartoContext(basecontext.APIContext) :
             lastonline = "Last online: " + datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z').strftime("%m/%d/%Y")
             viewers = "Total Views: " + str(rec['viewers_total'])
         myembed.add_field(name=lastonline,value=viewers,inline=True)
-        myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
+        if showprev :
+            myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
         myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
         return myembed

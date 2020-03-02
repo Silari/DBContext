@@ -24,10 +24,10 @@ def connect() :
     parsed = {item['username']:item for item in json.loads(buff)}
     return True
 
-#Gets the detailed information about a channel, non-async. only for testing.
-def getchannel(channelname) :
+#Gets the detailed information about a stream, non-async. only for testing.
+def getstream(streamname) :
     try :
-        newrequest = request.Request(apiurl + channelname)
+        newrequest = request.Request(apiurl + streamname)
         newconn = request.urlopen(newrequest)
         buff = newconn.read()
         if not buff :
@@ -45,7 +45,7 @@ import basecontext
 class PiczelContext(basecontext.APIContext) :
     defaultname = "piczel" #This is used to name this context and is the command to call it. Must be unique.
     streamurl = "http://piczel.tv/watch/{0}" #URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecname(rec)) generally
-    channelurl = apiurl + "{0}" #URL to call to get information on a single channel
+    channelurl = apiurl + "{0}" #URL to call to get information on a single stream
     apiurl = apiurl + "?&sfw=false&live_only=false&followedStreams=false" #URL to call to find online streams
 
     def __init__(self,instname=None) :
@@ -58,18 +58,18 @@ class PiczelContext(basecontext.APIContext) :
         self.lastupdate = lastupdate #Tracks if last API update was successful.
         #Adding stuff below here is fine.
 
-    #Gets the detailed information about a channel. Used for makedetailmsg.
-    #It returns a channel record. Needs a bit of modification from the default.
-    async def agetchannel(self,channelname,headers=None) :
+    #Gets the detailed information about a stream. Used for makedetailmsg.
+    #It returns a stream record. Needs a bit of modification from the default.
+    async def agetstream(self,streamname,headers=None) :
         rec = False
         #We can still use the baseclass version to handle the API call
-        detchan = await basecontext.APIContext.agetchannel(self,channelname,headers)
-        try : #Now we need to get the actual channel record from the return
+        detchan = await basecontext.APIContext.agetstream(self,streamname,headers)
+        try : #Now we need to get the actual stream record from the return
             if detchan : #detchan may be False if API call errors
-                rec = detchan['data'][0] #data is an array of channels - first one is our target channel
+                rec = detchan['data'][0] #data is an array of streams - first one is our target stream
                 #If user is in a multistream detchan may have multiple records - save them
                 if rec["in_multi"] :
-                    #The other records in data are members of a multistream with our target channel
+                    #The other records in data are members of a multistream with our target stream
                     #This is useful info for the detailed embed.
                     rec["DBMulti"] = detchan['data']
         except Exception as e : #Any errors, we can't return the record.
@@ -77,7 +77,7 @@ class PiczelContext(basecontext.APIContext) :
             #function should catch errors with the call and return False, which
             #we check for. This would probably signal a change in the API, which
             #we need to know about so we can fix.
-            print("piczel agetchannel", repr(e))
+            print("piczel agetstream", repr(e))
             rec = False
         return rec
 
@@ -139,8 +139,8 @@ class PiczelContext(basecontext.APIContext) :
             noprev.set_thumbnail(url=avatar)
         return noprev
 
-    async def makedetailembed(self,rec,snowflake=None,offline=False) :
-        #This generates the embed to send when detailed info about a channel is
+    async def makedetailembed(self,rec,showprev=True) :
+        #This generates the embed to send when detailed info about a stream is
         #requested. The actual message is handled by basecontext's detailannounce
         description = rec['title']
         multstring = ""
@@ -164,8 +164,9 @@ class PiczelContext(basecontext.APIContext) :
         myembed.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),value="Followers: " + str(rec['user']['follower_count']),inline=True)
         if rec['live'] :
             myembed.add_field(name="Streaming for " + await self.streamtime(await self.getrectime(rec)),value="Viewers: " + str(rec['viewers']))
-        thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg' + "?msgtime=" + str(int(time.time()))
-        myembed.set_image(url=thumburl)
+        if showprev :
+            thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg' + "?msgtime=" + str(int(time.time()))
+            myembed.set_image(url=thumburl)
         avatar = await self.getavatar(rec)
         #We've had issues with the avatar location changing. If it does again,
         #announces will still work until we can fix it, just without the avatar.
