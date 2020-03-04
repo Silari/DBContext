@@ -4,7 +4,6 @@ import aiohttp #Use this for any API requests - nonblocking. DO NOT use request!
 import json #Interpreting json results - updateparsed most likely needs this.
 import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
-import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
 import datetime #Stream durations, time online, etc.
 
@@ -15,6 +14,7 @@ apiurl = 'https://piczel.tv/api/streams/'
 offurl = 'https://piczel.tv/static'
 piczelurl = "http://piczel.tv/watch/"
 
+import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 #Old non-async method. Kept for debugging.
 def connect() :
     global parsed

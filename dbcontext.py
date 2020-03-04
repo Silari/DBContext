@@ -7,19 +7,19 @@
 #handle the major sections, but I don't think I tested that.
 
 #Completed and testing:
-
-#TWITCH
-#game_id seems to be empty sometimes. Am now printing entire buffer.
-#might need to add a hardcoded thing for == ''
-
-#Todo for 0.9:
-#Update to discord.py 1.3.2!
-
 #I still need to have the bot check if it doesn't have send_message perms in the
 #listen channel. It won't always be the channel the message was sent in!
 
+#Also, removemult doesn't allow ',' but addmult does. Maybe fix that.
+
 #Update the API class template for the new functions.
 
+#game_id seems to be empty sometimes. Am now printing entire buffer.
+#might need to add a hardcoded thing for == ''
+
+#TWITCH
+
+#Todo for 0.9:
 #Rewrite the messages so they're marked offline quicker, with the message being
 #reused if it comes back within 10 minutes. Basically just change the edit message
 #part to note that it is currently offline?
@@ -35,25 +35,15 @@
 #Maybe give contexts a 'commands' list so that it's easier to see what are valid?
 #help could use this to see what contexts have a particular command.
 
-##Can also allow "PWNotify" role that can get @'d if proper option is set.
-###Do this via reacting to a message sent by the bot. Can unreact to unset?
-
 #Add a module named Global for handling global settings - pretty simple data layout
 #ServerID->['Channel'],['MSG'],['Type'], etc.
 #Need to add a way for modules to READ but not WRITE this - getglobal(globalname)?
 #Reading done, but still need a way to set this.
 ##See below, module options instead
 
-#Similar to parsechannel, add a getoption(Type) to resolve an option setting
-#Probably add a defaultoptions dict to basecontext to control what to return
-#when there isn't one set. defaultopts = {'Type':'default','MSG':'edit'}
-#Again, this can handle getting the global value via getglobal if needed.
-#Done, apart from global. global ALSO done, just need to be able to set it
-##ALSO need a way to delete options. Both from the global store and context store
-###Previously this was going to be through manage setopt, but thinking about it
-###I'd rather make a new module for it, options, and direct things to use that
-###whenever possible, rather than invoking it for each APIContext. Simpler.
-####Deleting options is done in streamoption with the 'clear' option, which deletes em all.
+#Still need to think about a module to set things globally - the backend is there
+#already with getoption+getglobal but there's no way to set them. It just uses
+#the default option dict.
 
 #SIMILAR TO ABOVE: maybe a dict with the allowed option TYPES? Then again that
 #could be gotten from the defaultopts list maybe? Except that's global! so mods
@@ -66,18 +56,15 @@
 #all the stuff that needs to be done to remove a stream. Save some code, easier
 #to update/fix with one location instead.
 #maybe can do similar for add/addmult.
-#Also, removemult doesn't allow ',' but addmult does. Maybe fix that.
-
 #Something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
 #new one in the proper channel.
 
+##Can also allow "PWNotify" role that can get @'d if proper option is set.
+###Do this via reacting to a message sent by the bot. Can unreact to unset?
+
 #Option to @here - probably better handled by channel notifications user side
 ##Adding in the notify role instead, so that'd handle it just fine.
-
-#Allow streamoption to set a override channel by adding a channel mention
-#When iterating options, ignore starts with <#/ends with > (see addmult for code)
-#then just grab last item from list of channel mentions (if exists) and set that
 
 #TODO for 1.0
 #Remove client from contexts. They don't need it for send_message anymore
@@ -89,7 +76,13 @@
 #with it and merge the for old in removed with for gone in oldstreams.
 
 #Change announce to channel - all it really does now is set the default channel
-#Hell, maybe remove it entirely an use option instead?
+#Hell, maybe remove it entirely and use option instead? Could set channel the
+#same way streamoption does.
+
+#Is there a reason to keep addmult/removemult separate? They share the same
+#functionality is their single counterparts, including the channel override.
+#Only reason to keep add separate would be to allow settings options with the
+#add command - <stream> <option1> <option2>. Not sure that's needed though.
 
 version = 0.9 #Current bot version
 changelog = {}

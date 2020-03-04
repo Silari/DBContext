@@ -345,7 +345,7 @@ class APIContext :
             #calling code can check if it wants to differentiate it. Currently,
             #getting a detailed stream record does so to inform the user that
             #the attempt failed due to the API likely being down.
-            rec = None 
+            rec = None
         except json.JSONDecodeError : #Error in reading JSON - bad response from server?
             print("JSON Error in",self.name,"buff:",buff) #Log this, since it shouldn't happen.
             rec = False #This shouldn't happen since status == 200
@@ -746,6 +746,9 @@ class APIContext :
                 mydata["Servers"][message.guild.id]["AnnounceChannel"] = channelid
                 channel = await self.resolvechannel(message.guild.id,channelid=channelid)
                 msg = "Ok, I will now use " + channel.mention + " for announcements."
+                #Do we have permission to talk in that channel?
+                if not channel.permissions_for(channel.guild.me).send_messages :
+                    msg += "\nI **do not** have permission to send messages in that channel! Announcements will fail until permission is granted."
                 await message.channel.send(msg)
                 return
             elif command[0] == 'stop' :
@@ -1036,7 +1039,7 @@ class APIContext :
                         msg += "Too many listens - limit is 100 per server. Did not add " + newstream + "or later streams."
                         break
                     #If the name ends with a comma, strip it off. This allows
-                    #to copy/paste the result of the list command into add/mult
+                    #to copy/paste the result of the list command into addmult
                     #to re-add all those streams. 
                     if newstream.endswith(',') :
                         newstream = newstream[:-1]
@@ -1139,6 +1142,11 @@ class APIContext :
                 msg = ""
                 notfound = set()
                 for newstream in command[1:] :
+                    #If the name ends with a comma, strip it off. This allows
+                    #to copy/paste the result of the list command into removemult
+                    #to remove all those streams. 
+                    if newstream.endswith(',') :
+                        newstream = newstream[:-1]
                     #print(newstream)
                     try :
                         mydata["AnnounceDict"][newstream].remove(message.guild.id)

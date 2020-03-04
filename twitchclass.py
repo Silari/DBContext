@@ -131,6 +131,9 @@ class TwitchContext(basecontext.APIContext) :
             return self.mydata['Games'][gameid]
         if gameid == 0 : #Streamer might not have set one at all. Hardcoded.
             return "No game set"
+        if gameid == '' : #Streamer might not have set one at all. Hardcoded.
+            #This started showing up recently, might have supplanted 0.
+            return "No game set"
         try :
             buff = await self.acallapi('https://api.twitch.tv/helix/games?id=' + gameid,headers=twitchheader)
             detchan = buff['data'][0]
