@@ -3,6 +3,11 @@
 
 #TESTING NOTES
 #Completed and testing:
+#SavedMSG now in mydata, should hold through restarts
+##Need to check on restart if saved streams are still in parsed, if not delete
+
+#Change remove/removemult to not bother checking the message type. removemsg
+#does it already.
 
 #Todo:
 #Rewrite the messages so they're marked offline quicker, with the message being
@@ -90,7 +95,7 @@ changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 #as a discord message, so it'll just be kept on the wiki. Latest version will be
 #here solely as an organizational thing, until it's ready for upload to the wiki
 #proper.
-changelog["0.9"] = '''0.9 from 0.8 Changelog:
+changelog = '''0.9 from 0.8 Changelog:
 GENERAL
 Added resume command - resumes announcements after stop command
   stop command no longer unsets the announcement channel
@@ -98,6 +103,7 @@ Added new adult options - showadult (default, show all adults streams), hideadul
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
 Added new option - clear. Removes all set options (except announce channel)
 Added streamoption command. Allows setting any option on a per stream basis, rather than server wide. Can also set announcement channel for the stream.
+Bot now remembers announcements after quitting. Messages will be edited/removed when the bot comes back online.
 Changed removemult command to allow a trailing ',' same as addmult does.
 Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream.
   Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
@@ -321,7 +327,7 @@ async def helphandler(command, message) :
             return
     msg = "PicartoWatch bot version " + str(version)
     msg += "\nOnline help, and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
-    msg += "\nThe complete changelog can be found at <" + changelogurl + ">
+    msg += "\nThe complete changelog can be found at <" + changelogurl + ">"
     msg += "\nPlease use '<module> help' for help with specific modules"
     msg += "\nThe following modules are available for use: " + ", ".join(contexts)
     msg += "\nI listen to commands on any channel from users with the Administrator role on the server."
@@ -554,6 +560,19 @@ async def debughandler(command, message) :
         #This lets us see if the last update API call for our stream classes worked
         #print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
         await message.channel.send("Pica: " + picartoclass.lastupdate + "Picz: " + piczelclass.lastupdate + "Twit: " + twitchclass.lastupdate)
+    elif command[0] == 'checkstreams' :
+        streams = 0
+        for module in classcontexts :
+            try :
+                for server in module.savedmsg :
+                    streams += len(module.savedmsg[server])
+            except :
+                pass
+        await message.channel.send("Total online streams: " + str(streams))
+    elif command[0] == 'checkservers' :
+        #debug replyeval repr(client.guilds)
+        #above gives details on servers
+        await message.channel.send("I am currently in " + len(client.guilds) + " servers.")
     elif command[0] == 'channelperms' :
         #Gets the effective permissions for the bot in the given channel id
         if len(command) > 0 :

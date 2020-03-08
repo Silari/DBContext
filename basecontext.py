@@ -46,50 +46,6 @@ class APIContext :
     addglobal = None #Can be used to add a new variable to the list of options
     #that global will allow setting.
 
-    defaultdata = {"AnnounceDict":{},"Servers":{}}
-    #This is merged into the dict that dbcontext creates for this context on load,
-    #which is then stored in the mydata variable above.
-    #Basically, it just sets up some default structures for use later. It can be
-    #an empty dict, but these two options are currently used by every context to
-    #store their info, and it's recommended to keep that usage the same if you're
-    #doing a similar API based watch context, or at least the servers the same for
-    #what servers to respond in and what channel to respond to in that server if
-    #possible for your usage.
-
-    #The first keeps streams to search for, with a !set! of servers that want that
-    #info. For example, the twitch context would have info like this
-    #AnnounceDict
-    #   |-"AngriestPat"
-    #       |-<ServerID>
-    #   |-"WoolieVersus"
-    #       |-<ServerID>
-    #       |-<ServerID2>
-
-    #The second keeps a dict of servers, that holds the dict with the options they
-    #set, such as the channel to talk in, who they listen to, etc.
-    #Servers
-    #   |-<ServerID>
-    #       |"AnnounceChannel": <ChannelID>
-    #       |"Listens": set("AngriestPat","WoolieVersus")
-    #       |"Users": set()
-    #   |-<ServerID2>
-    #       |"AnnounceChannel": <ChannelID2>
-    #       |"Listens": set("WoolieVersus")
-    #       |"Users": set()
-    #       |"MSG": delete
-
-    #Now there's a third, COver, which overriddes certain settings or acts as a
-    #flag for the server in the context.
-    #COver
-    #  |-<ServerID> #Server ID for the settings
-    #      |"Stop": True #Set of stop command used, unset by Listen.
-    #      |-<Streamname> #Stream to override context setting for
-    #          |-"Channel": <ChannelID> #Channel to announce in instead of listen channel
-
-    #Again, these are not requirements, but recommended to simplify things. It means
-    #being able to copy/paste a lot of code from the existing templates, and time
-    #savers are always nice.
-
     def __init__(self,instname=None) :
         #There are two values set by dbcontext after initializing the class:
         #self.mydata - contains the persistent data for this instance.
@@ -98,9 +54,64 @@ class APIContext :
             self.name = instname
         else :
             self.name = self.defaultname
-        self.savedmsg = {}
         self.parsed = parsed #This should be replaced in the subclass
         self.lastupdate = lastupdate #This should be replaced in the subclass
+        self.defaultdata = {"AnnounceDict":{},"Servers":{},"COver":{},"SavedMSG":{}}
+        #This is merged into the dict that dbcontext creates for this context on load,
+        #which is then stored in the mydata variable above.
+        #Basically, it just sets up some default structures for use later. It can be
+        #an empty dict, but these two options are currently used by every context to
+        #store their info, and it's recommended to keep that usage the same if you're
+        #doing a similar API based watch context, or at least the servers the same for
+        #what servers to respond in and what channel to respond to in that server if
+        #possible for your usage.
+
+        #The first keeps streams to search for, with a !set! of servers that want that
+        #info. For example, the twitch context would have info like this
+        #AnnounceDict
+        #   |-"AngriestPat"
+        #       |-<ServerID>
+        #   |-"WoolieVersus"
+        #       |-<ServerID>
+        #       |-<ServerID2>
+
+        #The second keeps a dict of servers, that holds the dict with the options
+        #they set, such as the channel to talk in, who they listen to, etc.
+        #Servers
+        #   |-<ServerID>
+        #       |"AnnounceChannel": <ChannelID>
+        #       |"Listens": set("AngriestPat","WoolieVersus")
+        #       |"Users": set()
+        #   |-<ServerID2>
+        #       |"AnnounceChannel": <ChannelID2>
+        #       |"Listens": set("WoolieVersus")
+        #       |"Users": set()
+        #       |"MSG": delete
+
+        #Now there's a third, COver, which overriddes certain settings or acts as a
+        #flag for the server in the context.
+        #COver
+        #  |-<ServerID> #Server ID for the settings
+        #      |"Stop": True #Set of stop command used, unset by Listen.
+        #      |-<Streamname> #Stream to override context setting for
+        #          |-"Option": #Holds a dict to hold option overrides in
+        #              |-<optionname>: <optionvalue> #Holds the new value for the given option
+        #              |-"Channel": <ChannelID> #Channel to announce in instead of listen channel
+
+        #And now a fourth, SavedMSG. This is a dict that holds the discord I of any
+        #announcement messages saved. It's a dict of server ID, that each hold a
+        #dict of <streamname>:<messageid>
+        #SavedMSG
+        #  |-<ServerID> #Server ID these messages are for
+        #      |<Stream1>:<messageid>
+        #      |<Stream2>:<messageid2>
+        #  |-<ServerID2>
+        #      |<Stream2>:<messageid3>
+
+        #Again, these are not requirements, but recommended to simplify things. It means
+        #being able to copy/paste a lot of code from the existing templates, and time
+        #savers are always nice.
+
 
     #Display name of the record, used to ID the stream and in messages.
     #Should be overridden.
@@ -120,9 +131,15 @@ class APIContext :
     #Get saved message id
     async def getmsgid(self,guildid,recid) :
         try :
-            return self.savedmsg[guildid][recid]
+            return self.mydata['SavedMSG'][guildid][recid]
         except KeyError : #Guild has no saved messages, or none for that record
             return False
+
+    #Set saved message id
+    async def setmsgid(self,guildid,recid,messageid) :
+        if not guildid in self.mydata['SavedMSG'] :
+            self.mydata['SavedMSG'][guildid] = {}
+        self.mydata['SavedMSG'][guildid][recid] = messageid
 
     #Get the channel to announce.
     async def resolvechannel(self,guildid,recname=None,channelid=None) :
@@ -382,11 +399,12 @@ class APIContext :
         #CURRENTLY only called once, when the bot is first started, but this may
         #change in future versions if the client needs to be redone.
         self.conn = conn #Set our ClientSession reference for connections.
+        #While we wait for the client to login, we can check our APIs
         try :
-            await self.updateparsed() #Start our first API scrape, shouldn't need client
+             await self.updateparsed() #Start our first API scrape
         except Exception as error :
             #We catch any errors that happen on the first update and log them
-            #It shouldn't happen, but we need to catch it our our wrapper would
+            #It shouldn't happen, but we need to catch it or our wrapper would
             #break.
             print(self.name,"initial update error",repr(error))
         #Logs our starting info for debugging/check purposes
@@ -396,6 +414,22 @@ class APIContext :
         await self.client.wait_until_ready() #Don't start until client is ready
         #The above makes sure the client is ready to read/send messages and is
         #fully connected to discord. Usually, it is best to leave it in.
+        #Now our client is ready and connected, let's check if our saved messages
+        #are still online. If not, we need to pass it to removemsg.
+        #Step 1: Get a list of all stream names with a saved message
+        savedstreams = set([item for sublist in [self.mydata["SavedMSG"][k] for k in self.mydata["SavedMSG"]] for item in sublist])
+        #print("savedstreams",savedstreams)
+        #Note that if the initial update fails, due to the API being down most
+        #likely, this WILL remove all stream messages. Waiting until the API
+        #updates successfully might be the best option, but that'd require to
+        #much reworking of the update task. This way they'll get announced when
+        #the API comes back.
+        for stream in savedstreams :
+            #Step 2: Check if the stream is offline: not in self.parsed.
+            if not stream in self.parsed : #No longer online
+                #print("savedstreams removing",stream)
+                #Send it to removemsg to edit/delete the message for everyone.
+                await self.removemsg(rec=None,recid=stream)
         #while not loop keeps a background task running until client closing
         while not self.client.is_closed() :
             try :
@@ -474,11 +508,15 @@ class APIContext :
                     await self.removemsg(rec) #Need to potentially remove messages
             return
 
-    async def removemsg(self,rec,serverlist=None) :
+    async def removemsg(self,rec,serverlist=None,recid=None) :
         '''Removes or edits the announcement message(s) for streams that have
         gone offline.'''
+        #Sending None for rec is supported, in order to allow edit/removal of
+        #offline streams - ie after the bot was offline.
         mydata = self.mydata #Ease of use and speed reasons
-        recid = await self.getrecname(rec)
+        #If we were provided with a record id, we don't need to find it.
+        if not recid :
+            recid = await self.getrecname(rec)
         if not serverlist :
             serverlist = mydata['AnnounceDict'][recid]
         for server in serverlist :
@@ -496,12 +534,21 @@ class APIContext :
                     if channel : #We may not have a channel if we're no longer in the guild/channel
                         oldmess = await channel.fetch_message(msgid)
                         newembed = None
+                        #Simple would not have an old embed to use.
                         if len(oldmess.embeds) > 0 :
                             newembed = oldmess.embeds[0].to_dict()
                             if 'image' in newembed : #Is there a stream preview?
                                 #Delete preview as they're not online
                                 del newembed['image']
-                            newembed['title'] = await self.streammsg(msgid,rec,offline=True)
+                            #If we have the rec, this is an online edit so we
+                            #can update the time.
+                            if rec :
+                                newembed['title'] = await self.streammsg(msgid,rec,offline=True)
+                            #If we don't, this is an offline edit. We can't get
+                            #the time stream ran for, so just edit the current
+                            #stored time and use that.
+                            else : 
+                                newembed['title'] = newembed['title'].replace("running","lasted")
                             newembed = discord.Embed.from_dict(newembed)
                         newmsg = recid + " is no longer online. Better luck next time!"
                         await oldmess.edit(content=newmsg,embed=newembed)
@@ -524,8 +571,8 @@ class APIContext :
                 print(self.name,"remove message forbidden:", repr(e))
                 pass
             except discord.NotFound :
-                #Only the message finding should trigger this, in which case nothing
-                #to do except ignore it. It was probably deleted.
+                #Only the message finding should trigger this, in which case
+                #nothing to do except ignore it. It was probably deleted.
                 pass
             except discord.HTTPException as e :
                 #HTTP error running the edit/delete command. The above two should've
@@ -535,15 +582,16 @@ class APIContext :
             #Remove the msg from the list, we won't update it anymore.
             #This still happens for static messages, which aren't edited or removed
             try : 
-                del self.savedmsg[server][recid]
+                del mydata['SavedMSG'][server][recid]
             except KeyError : #They might not have a message saved, ignore that
                 pass
 
     async def updatemsg(self,rec) :
         '''Updates an announcement with the current stream info, including run time.'''
         recid = await self.getrecname(rec) #Keep record name cached
+        mydata = self.mydata #Ease of use and speed reasons
         #Compile dict of all stored announcement messages for this stream.
-        allsaved = {k:v[recid] for (k,v) in self.savedmsg.items() if recid in v}
+        allsaved = {k:v[recid] for (k,v) in mydata['SavedMSG'].items() if recid in v}
         if allsaved : #List MAY be empty if no announcements were made
             oldest = min(allsaved.values()) #Find the id with the lowest value
             #print("updatemsg",allsaved,"@@@",oldest)
@@ -558,7 +606,6 @@ class APIContext :
             #So we can just stop now and save time.
             #print("updatemsg found no saved!")
             return
-        mydata = self.mydata #Ease of use and speed reasons
         for server in mydata['AnnounceDict'][recid] :
             #Get the options set for type of message, and if messages are edited
             typeopt = await self.getoption(server,"Type",recid)
@@ -596,7 +643,7 @@ class APIContext :
                     try :
                         #print("Removing message",server,recid,msgid)
                         #Message is gone, remove it
-                        del self.savedmsg[server][recid]
+                        del mydata['SavedMSG'][server][recid]
                     except :
                         pass
                     pass
@@ -678,9 +725,7 @@ class APIContext :
                 pass
             #print("Sent",sentmsg)
             if sentmsg :
-                if not (server in self.savedmsg) :
-                    self.savedmsg[server] = {}
-                self.savedmsg[server][recid] = sentmsg.id
+                await self.setmsgid(server,recid,sentmsg.id)
 
     #Embed for a detailed announcment - usually more info than in the default announce
     #Empty stub that should be overridden. This ignores the embed type option!
@@ -939,19 +984,19 @@ class APIContext :
             elif command[0] == 'announce' : #Reannounce any missing announcements
                 clive = 0 #Channels that are live
                 canno = 0 #Channels that were announced
+                #Iterate over all this servers' listens
                 for item in mydata["Servers"][message.guild.id]["Listens"] :
                         if item in self.parsed : #Stream is online
                             clive = clive + 1
                             #Make sure we have a savedmsg, we're going to need it
-                            if not (message.guild.id in self.savedmsg) :
-                                self.savedmsg[message.guild.id] = {}
+                            if not (message.guild.id in mydata['SavedMSG']) :
+                                mydata['SavedMSG'][message.guild.id] = {}
                             #Stream isn't listed, announce it
-                            if not item in self.savedmsg[message.guild.id] :
+                            if not item in mydata['SavedMSG'][message.guild.id] :
                                 #print("Announcing",item)
                                 await self.announce(self.parsed[item],message.guild.id)
                                 canno = canno + 1
                 msg = "Found " + str(clive) + " live stream(s), found " + str(canno) + " stream(s) that needed an announcement."
-                #old message msg = "Announced " + str(canno) + " stream(s) that are live but not announced of " + str(clive) + " live streams."
                 if await self.getoption(message.guild.id,'Stop') :
                     msg += "\nStop is currently enabled for this server - no announcements have been made. The 'resume' command must be used to re-enable announcements."
                 if not self.lastupdate : #Note if the API update failed
@@ -1102,13 +1147,13 @@ class APIContext :
                     if ("MSG" in mydata["Servers"][message.guild.id]) and (mydata["Servers"][message.guild.id]["MSG"] == "delete" ) :
                         #This will delete announcement and clear savedmsg for us
                         try :
-                            self.removemsg(parsed[command[1]],[message.guild.id])
+                            await self.removemsg(parsed[command[1]],[message.guild.id])
                         except KeyError : #If stream not online, parsed won't have record.
                             pass
                     else :
                         #We still need to remove any savedmsg we have for this stream.
                         try : #They might not have a message saved, ignore that
-                            del self.savedmsg[message.guild.id][command[1]]
+                            del mydata['SavedMSG'][message.guild.id][command[1]]
                         except KeyError :
                             pass
                     #And remove any overrides for the stream
@@ -1160,13 +1205,13 @@ class APIContext :
                     if ("MSG" in mydata["Servers"][message.guild.id]) and (mydata["Servers"][message.guild.id]["MSG"] == "delete" ) :
                         #This will delete announcement and clear savedmsg for us
                         try :
-                            self.removemsg(parsed[newstream],[message.guild.id])
+                            await self.removemsg(parsed[newstream],[message.guild.id])
                         except KeyError : #If stream not online, parsed won't have record.
                             pass
                     else :
                         #We still need to remove any savedmsg we have for this stream.
                         try : #They might not have a message saved, ignore that
-                            del self.savedmsg[message.guild.id][newstream]
+                            del mydata['SavedMSG'][message.guild.id][newstream]
                         except KeyError :
                             pass
                     #And remove any overrides for the stream

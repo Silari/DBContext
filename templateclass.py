@@ -57,7 +57,8 @@ class TemplateContext(basecontext.APIContext) :
         #here. The following works as a default return, as it's only ever used
         #in a max function with the time since the message was made. Some streams
         #use it in the detail embed as well, so you may want it there too.
-        #Default return, duration of 0 seconds.
+        #Default return, duration of 0 seconds. It is safe to delete this
+        #function, as basecontext has a working version.
         return datetime.datetime.now(datetime.timezone.utc) - began
 
     #The embed used by the default message type. Same as the simple embed except
