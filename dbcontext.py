@@ -2,24 +2,9 @@
 #Now based on discord.py version 1.3.2
 
 #TESTING NOTES
-#NEED to rename dbcontexts.bin and double check everything works still. Might be
-#some spots I forgot to check that certain things exist. The default dicts should
-#handle the major sections, but I don't think I tested that.
-
 #Completed and testing:
-#I still need to have the bot check if it doesn't have send_message perms in the
-#listen channel. It won't always be the channel the message was sent in!
 
-#Also, removemult doesn't allow ',' but addmult does. Maybe fix that.
-
-#Update the API class template for the new functions.
-
-#game_id seems to be empty sometimes. Am now printing entire buffer.
-#might need to add a hardcoded thing for == ''
-
-#TWITCH
-
-#Todo for 0.9:
+#Todo:
 #Rewrite the messages so they're marked offline quicker, with the message being
 #reused if it comes back within 10 minutes. Basically just change the edit message
 #part to note that it is currently offline?
@@ -56,6 +41,7 @@
 #all the stuff that needs to be done to remove a stream. Save some code, easier
 #to update/fix with one location instead.
 #maybe can do similar for add/addmult.
+
 #Something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
 #new one in the proper channel.
@@ -67,6 +53,20 @@
 ##Adding in the notify role instead, so that'd handle it just fine.
 
 #TODO for 1.0
+#NEED to rename dbcontexts.bin and double check everything works still. Might be
+#some spots I forgot to check that certain things exist. The default dicts should
+#handle the major sections, but I don't think I tested that.
+
+#Change permission to use the bot to manage server? I think that's what allows
+#someone to invite a bot to begin with, and at that point they should be able to
+#control this one.
+
+#Account for options changing after initial announcement. I've caught a few of
+#these but especially removemsg assumes that an embed is already present: if the
+#type was changed from simple to the others and then goes offline it doesn't get
+#an embed. There's already an if embeds>0 check, have else newembed = (make new embed)
+#and to_dict() it, then move the if 'image' and past it out of the if, as there'd
+#always be a newembed dict at that point.
 #Remove client from contexts. They don't need it for send_message anymore
 #Currently only used for get_channel and wait_until_ready
 
@@ -85,7 +85,11 @@
 #add command - <stream> <option1> <option2>. Not sure that's needed though.
 
 version = 0.9 #Current bot version
-changelog = {}
+changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
+#We're not keeping the changelog in here anymore - it's too long to reliably send
+#as a discord message, so it'll just be kept on the wiki. Latest version will be
+#here solely as an organizational thing, until it's ready for upload to the wiki
+#proper.
 changelog["0.9"] = '''0.9 from 0.8 Changelog:
 GENERAL
 Added resume command - resumes announcements after stop command
@@ -94,11 +98,16 @@ Added new adult options - showadult (default, show all adults streams), hideadul
 Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
 Added new option - clear. Removes all set options (except announce channel)
 Added streamoption command. Allows setting any option on a per stream basis, rather than server wide. Can also set announcement channel for the stream.
+Changed removemult command to allow a trailing ',' same as addmult does.
 Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream.
   Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
 Added stream length time to picarto/piczel/twitch detail announce, rearranged order of items.
 Added follower count to piczel detailed announce.
+Bot will check if it lacks permission to send messages to the listen channel, and add the issue to it's response to the command.
+  Note that if the listen channel is where the command was sent, the reply will fail due to the issue.
+  There is already a PM sent to the user if that is the case.
 Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
+Fixed bug in offline message editing when previews weren't being used.
 announce and help commands will now include a message if the last API update failed.
 Fixed and updated help commands, rewrote some to add details/clarity. 
 API reads will return None if the API call timed out, allowing for more detailed error messages.
@@ -109,132 +118,8 @@ announce handles Forbidden errors when sending the announcement.
 Added missing help description for manage create command.
 Fixed add command always stating the message channel was being used for announcements even when mentioning a channel
 Fixed listen always using the message channel as the listen target, even when mentioning a channel.
-BACKGROUND
-Moved check in add for too many streams to first test
-streamtime only uses a duration instance to calculate time instead of a Discord snowflake.
-Added getrectime to basecontext, picarto, twitch, and piczel classes. Uses API info to get the length of a stream. Limited use on Picarto due to API constraints.
-streammsg now uses the longer of getrectime and the message snowflake when determining stream length.
-Fixed basecontext embed functions not having 'snowflake' parameter.
-basecontext uses getmsgid to retrieve saved messages in all locations.
-Remove trailing period from streamtime short response.
+Fixed issue with Twitch API when gameid is set to ''
 '''
-changelog["0.8"] = '''0.8 from 0.7 Changelog:
-GENERAL
-Added adult/noadult option. Will hide streams that are marked as adult, if the API supports it.
-  Please note that this is based on the streamer setting that option appropriately, and that previews may be cached from non-safe periods both on the API and user side.
-  Do not rely on this option to perfectly shield your users from potentially NSFW content.
-  list command will state if adult streams are enabled or not.
-'manage check' command now explicitly lists if members are a bot: bots never have permission to address the bot.
-'manage create <channelmention>' command added - will create the bot role if necessary, and then add a permission override for the given channel for read + send messages.
-stop command now unsets announcement channel and prevents new announcements from being made, even if they have an overridden announcement channel.
-  Using listen will start announcements again. Old announcements will still be edited/removed when applicable.
-  list command will state if the stop command is currently active.
-list command now shows channel overrides when present.
-announce command will cause the bot to announce any live streams that have not been announced.
-calling the help module with a context name will pass the help command to that module.
-Fixed an error in basecontext that prevented help from working.
-twitch streams now handle not having a game id set.
-'streamoption <streamname> <option>' command added, which sets an option only for the given stream.
-PICZEL
-Modified code for API change to avatar url location
-Please see the github for further items.'''
-changelog["0.7"] = '''0.7 from 0.6 Changelog:
-GENERAL
-Added stream length to edited announcement messages.
-listen command changed to allow mentioning a channel to make it the announcement channel. If none given, it is still the channel the command was given in.
-add command now allows mentioning a channel after the stream name to make that stream announce in the mentioned channel, rather than the default listen channel.
-addmult also now allows mentioning a channel to set a channel override for all the channels given. It can be anywhere in the command.
-addmult now strips a trailing comma from channel names if present, to allow for copy/pasting the output of the list command without modification.
-remove and removemult commands now deletes/stops editing current announcement for the deleted stream.
-Fixed an issue where streams were marked as offline before the proper wait time.
-Quitting using the debug quit command now exits with status code 42, to allow for checking of intentional stoppage.
-  Bot exit due to other reasons (SIGINT/SIGTERM/etc) is handled better, but still needs work.
-API based modules now track if the last API update succeeded. Failure will be noted in the list command.
-Please see the github for further items.'''
-changelog["0.6"] = '''0.6 from 0.5 Changelog:
-GENERAL
-Data saving made more robust, and most errors should be found before attempting to save data.
-Activity is re-set when resuming connection.
-list command for all modules links to the set announcement channel, instead of just saying the name.
-API based modules rewritten to be classes, inheriting from a common basecontext class.
-basecontext caches record IDs to avoid needing multiple calls.
-basecontext handles attempting announcement in a server it is not a member of.
-basecontext handles attempting editing announcement when no announcement was saved.
-basecontext uses more specific exceptions for error catching, to avoid hiding unexpected errors.
-Closing the bot is handled more gracefully.
-Twitch module now uses properly aiohttp for all connections.
-Added a small purpose-built module for one server to handle unwanted role changes.'''
-changelog["0.5"] = '''0.5 from 0.4 Changelog:
-GENERAL
-Updated for discord.py current version: 1.1.1.
-  This should make the bot considerably more reliable in case of internet or server outages.
-Link to online version of help on the github page added.
-Added removemult command - removes multiple streams, separated by space, same as addmult.
-Bot nows shows the typing status while responding to commands.
-Updated API parsing to handle 0-byte returns. Update will be skipped for that cycle.
-  Both picarto and piczel were updated. Twitch has not due to differences in the API.
-Changed internal handling of module data - no longer passed to the handler.
-Fixed list command for all modules not checking if server options exist.
-Fixed addmult command for all modules failing if channel was already added.
-Changed data storage name to dbcontexts.bin.
-MANAGE MODULE - NEW
-Added. Allows for easier managing of roles allowing bot usage. Requires Manage Roles permission!'''
-changelog["0.4"] = '''0.4 from 0.3 Changelog:
-GENERAL
-Add piczel.tv support.
-Renamed code files.
-All API keys moved to a separate file for security.
-All modules support setting multiple options at once. Later options overwrite previous options if conflicting.
-Periodic saving of data ACTUALLY running.
-Minor internal code changes to better support context framework.
-Background tasks are now properly cancelled on exit, refactored task creation.
-Important messages are sent to any server which has registered a listening channel.
-  Typically these are announcements of update rollouts, or possibly downtimes
-PICZEL MODULE - NEW
-Added. Commands are identical to picarto module, minor output differences.
-PICARTO MODULE
-Split into own module, instead of inline with discordbot code.
-Detail command now returns a message if a user was not provided.
-Now supports editing of announcement messages with current info, including if stream is offline
-  Optionally, can delete the announcement when channel goes offline
-TWITCH MODULE
-Detail command now returns a message if a user was not provided.
-Now supports editing of announcement messages with current info, including if stream is offline
-  Optionally, can delete the announcement when channel goes offline'''
-changelog["0.3"] = '''0.3 from 0.2 Changelog:
-GENERAL
-Added Twitch.tv stream support.
-context data is now merged onto default data rather than replacing it entirely.
-Context data now saves regularly, as well as at shutdown.
-Bot now shows a Playing message with the command for help.
-PICARTO MODULE
-Add commands now verify stream names during adding. Avoids issues with mismatched capitalizations/misspellings.
-Added option for how announcements are displayed - default, no preview (noprev), and simple.
-List command now shows currently online streams in bold.
-Added addmult command to add multiple streams at once.
-Refactor update thread to catch errors and resume updates afterwards.
-Refactor help to show when help command OR no command.
-TWITCH MODULE
-Added. Commands are identical to picarto module, minor output differences.'''
-changelog["0.2"] = '''0.2 from 0.1 Changelog:
-GENERAL
-Change trigger to be an @mention
-Bot now ignores all bot users.
-Users with a Role named <Bot Discord Name> have permission to use bot commands.
-  Administrators on the server will always have permission to use commands.
-Removed some debug stuff.
-Added code to hopefully save data if process is SIGTERMd. Periodic saves coming soon.
-PICARTO MODULE
-Added limit of 100 listens per server.
-Changed announce method to a media-rich embed with channel avatar and preview.
-Added 'detail' command which responds with announce-style window with more info.
-Adding a watched channel will announce that channel immediately if online.
-Updated help to current functionality.
-Changed Request module to aiohttp to avoid blocking.
-Small refactor on update thread to not run an unneeded final update when shutting down.
-HELP MODULE
-Added version and changelog commands.'''
-changelog["0.1"] = "0.1 Changelog:\nInitial Version."
 
 #Import module and setup our client and token.
 import discord
@@ -404,32 +289,17 @@ async def handler(command, message, handlerdata) :
     return
 
 async def helphandler(command, message) :
-##    if command :
-##        msg = 'For help with a specific context, please use "<context> help"'
-##        await message.channel.send(msg)
-##    else :
-    #print("help", command)
-    if len(command) > 0 :
+    if len(command) > 0 : #We were given additional paramters
+        #Let's see if it's a command we understand.
         if command[0] == "version" :
             msg = client.user.name + " bot version " + str(version)
             msg += ". Please use the 'help changelog' command for update details."
             await message.channel.send(msg)
             return
-        elif command[0] == "versions" :
-            msg = "The following versions of PicartoWatch exist: "
-            msg += ", ".join(changelog)
-            await message.channel.send(msg)
-            return
         elif command[0] == "changelog" :
-            #print(len(command))
-            if len(command) == 1 :
-                command.append(version)
-            try :
-                msg = changelog[str(command[1])]
-                await message.channel.send(msg)
-            except (KeyError, ValueError) as e :
-                msg = "No changelog exists for version " + str(command[1])
-                await message.channel.send(msg)
+            msg = "The complete changelog can be found at <" + changelogurl + ">, due to length."
+            msg += "Current version is: " + str(version)
+            await message.channel.send(msg)
             return
         elif command[0] == "help" :
             msg = "PicartoWatch bot version " + str(version)
@@ -450,7 +320,8 @@ async def helphandler(command, message) :
             await contfuncs[command[0]](["help"] + command[1:],message)
             return
     msg = "PicartoWatch bot version " + str(version)
-    msg += "\nOnline help and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
+    msg += "\nOnline help, and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
+    msg += "\nThe complete changelog can be found at <" + changelogurl + ">
     msg += "\nPlease use '<module> help' for help with specific modules"
     msg += "\nThe following modules are available for use: " + ", ".join(contexts)
     msg += "\nI listen to commands on any channel from users with the Administrator role on the server."

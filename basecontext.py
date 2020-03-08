@@ -347,6 +347,13 @@ class APIContext :
             #the attempt failed due to the API likely being down.
             rec = None
         except json.JSONDecodeError : #Error in reading JSON - bad response from server?
+            if buff.startswith("<!DOCTYPE html>") :
+                #We got an HTML document instead of a JSON response. piczel does this
+                #during maintenence, and it's not valid for anyone else either so might
+                #as well catch it here, so we can supress this error.
+                #Putting it here in the except instead of above means it only matters if
+                #JSON decoding failed. Maybe it wouldn't always.
+                return False #We failed, return a false
             print("JSON Error in",self.name,"buff:",buff) #Log this, since it shouldn't happen.
             rec = False #This shouldn't happen since status == 200
         return rec
@@ -369,7 +376,7 @@ class APIContext :
     #This is started as a background task by dbcontext. It can be empty but
     #should exist.
     async def updatewrapper(self,conn) :
-        '''Sets a function to be run continuously ever 60 seconds until the bot
+        '''Sets a function to be run continuously every 60 seconds until the bot
         is closed.'''
         #Data validation should go here if needed for your mydata dict. This is
         #CURRENTLY only called once, when the bot is first started, but this may
@@ -488,10 +495,14 @@ class APIContext :
                     channel = await self.resolvechannel(server,recid)
                     if channel : #We may not have a channel if we're no longer in the guild/channel
                         oldmess = await channel.fetch_message(msgid)
-                        newembed = oldmess.embeds[0].to_dict()
-                        del newembed['image'] #Delete preview as they're not online
-                        newembed['title'] = await self.streammsg(msgid,rec,offline=True)
-                        newembed = discord.Embed.from_dict(newembed)
+                        newembed = None
+                        if len(oldmess.embeds) > 0 :
+                            newembed = oldmess.embeds[0].to_dict()
+                            if 'image' in newembed : #Is there a stream preview?
+                                #Delete preview as they're not online
+                                del newembed['image']
+                            newembed['title'] = await self.streammsg(msgid,rec,offline=True)
+                            newembed = discord.Embed.from_dict(newembed)
                         newmsg = recid + " is no longer online. Better luck next time!"
                         await oldmess.edit(content=newmsg,embed=newembed)
                 #We should delete the message
@@ -791,21 +802,12 @@ class APIContext :
                             await self.setoption(message.guild.id,group)
                         setopt.add(newopt)
                     elif newopt in ("default","noprev","simple") :
-                        if not (message.guild.id in mydata["Servers"]) :
-                            #Haven't created servers info dict yet, make a dict.
-                            mydata["Servers"][message.guild.id] = {}
                         await self.setoption(message.guild.id,"Type",newopt)
                         setopt.add(newopt)
                     elif newopt in ("delete","edit","static") :
-                        if not (message.guild.id in mydata["Servers"]) :
-                            #Haven't created servers info dict yet, make a dict.
-                            mydata["Servers"][message.guild.id] = {}
                         await self.setoption(message.guild.id,"MSG",newopt)
                         setopt.add(newopt)
                     elif newopt in ("showadult","hideadult","noadult") :
-                        if not (message.guild.id in mydata["Servers"]) :
-                            #Haven't created servers info dict yet, make a dict.
-                            mydata["Servers"][message.guild.id] = {}
                         await self.setoption(message.guild.id,"Adult",newopt)
                         setopt.add(newopt)
                     else :
@@ -894,7 +896,6 @@ class APIContext :
                     msg = "I am not currently set to announce streams in a channel."
                 try :
                     #Create list of watched streams, bolding online ones.
-                    #newlist = [*["**" + item + "**" for item in mydata["Servers"][message.guild.id]["Listens"] if item in self.parsed],*[item for item in mydata["Servers"][message.guild.id]["Listens"] if not item in self.parsed]]
                     newlist = []
                     for item in mydata["Servers"][message.guild.id]["Listens"] :
                         newitem = item
@@ -936,8 +937,8 @@ class APIContext :
                 await message.channel.send(msg)
                 return
             elif command[0] == 'announce' : #Reannounce any missing announcements
-                clive = 0
-                canno = 0
+                clive = 0 #Channels that are live
+                canno = 0 #Channels that were announced
                 for item in mydata["Servers"][message.guild.id]["Listens"] :
                         if item in self.parsed : #Stream is online
                             clive = clive + 1
@@ -991,15 +992,9 @@ class APIContext :
                 #This marks the server as listening to the stream
                 mydata["Servers"][message.guild.id]["Listens"].add(command[1])
                 if message.channel_mentions : #Channel mention, so make an override
-                    #FINALLY we can make the actual stream override.
                     #Set this servers stream override for this stream to the mentioned channel.
                     await self.setstreamoption(message.guild.id,'Channel',command[1],message.channel_mentions[0].id)
-                    #mydata['COver'][message.guild.id][command[1]]['Channel'] = message.channel_mentions[0].id
                 else : #If we're not SETTING an override, delete it.
-##                    try :
-##                        del mydata['COver'][message.guild.id][command[1]]['Channel']
-##                    except KeyError : #If any of those keys don't exist, it's fine
-##                        pass #Ignore it, because the override isn't set.
                     await self.setstreamoption(message.guild.id,'Channel',command[1])
                 msg = "Ok, I will now announce when " + command[1] + " comes online."
                 if message.channel_mentions : #Inform the user the override was set
@@ -1071,13 +1066,8 @@ class APIContext :
                                 mydata['COver'][message.guild.id][newrec] = {}
                             #Set this servers stream override for this stream to the mentioned channel.
                             await self.setstreamoption(message.guild.id,'Channel',newrec,message.channel_mentions[0].id)
-                            #mydata['COver'][message.guild.id][newrec]['Channel'] = message.channel_mentions[0].id
                         else : #If we're not SETTING an override, delete it.
                             await self.setstreamoption(message.guild.id,'Channel',newrec)
-##                            try :
-##                                del mydata['COver'][message.guild.id][newrec]['Channel']
-##                            except KeyError : #If any of those keys don't exist, it's fine
-##                                pass #Ignore it, because the override isn't set.
                         added.add(newrec)
                 if added :
                     added = [*["**" + item + "**" for item in added if item in self.parsed], *[item for item in added if not item in self.parsed]]
