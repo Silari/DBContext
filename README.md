@@ -1,12 +1,12 @@
 # DBContext
 A discord.py based bot with module loading functions - aka contexts. Currently, this bot allows for announcing for Picarto.TV, Twitch.TV, and Piczel.TV streams on discord servers. Each is configured independently, allowing for each type to occupy their own channel with their own options if desired. A template is provided to create new contexts. Essentially, each module handles any command that uses the module name - ie. any command starting with picarto is given to the picartocontext module to handle. The dbcontext module manages the client instance, and provides a persistent data storage location which is saved periodically to dbcontext.bin via pickling.
 
-Modules should be simple, easy to use, and not require excessive permissions. This is not an administration bot, and does not ask for any permissions beyond reading, writing, and editing messages, embedding in messages, adding reactions and emojis, and adding mentions to messages. This is little more than what the average user has by default. It also asks for role management permissions to add/remove the role permitting users to use the bot, but is not required.
+Modules should be simple, easy to use, and not require excessive permissions. This is not an administration bot, and does not need any permissions beyond reading, writing, and editing messages, embedding in messages, adding reactions and emojis, and adding mentions to messages. This is little more than what the average user has by default. It also asks for role management permissions to add/remove the role permitting users to use the bot, but is not required.
 
 ### Prerequisites
 If you simply wish to add the current instance of dbcontext to your server, check the instructions on [the project wiki.](https://github.com/Silari/DBContext/wiki)
 
-If you wish to run your own instance, you must use Python 3.6 or 3.7, and have installed discord.py version 1.2.5. Typically, this can be done easily via pip. 
+If you wish to run your own instance, you must use Python 3.6 or 3.7, and have installed discord.py version 1.3.2. Typically, this can be done easily via pip. 
 
 Linux/OS X
 
