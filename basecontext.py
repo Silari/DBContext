@@ -23,7 +23,9 @@ import datetime #For stream duration calculation
 parsed = {}
 lastupdate = [] #List that tracks if update succeeded - empty if not successful
 
-offlinewait = 10 #How many minutes to wait before declaring a stream offline
+offlinewait = 10 #How many minutes to wait before declaring a stream offline - OLD
+updatetime = 300 #How many seconds to wait before updating stream announcements
+offlinetime = 600 #How many seconds to wait before declaring a stream offline
 
 class APIContext :
     defaultname = "template" #This must be a unique name, used to identify this context
@@ -401,7 +403,7 @@ class APIContext :
         self.conn = conn #Set our ClientSession reference for connections.
         #While we wait for the client to login, we can check our APIs
         try :
-             await self.updateparsed() #Start our first API scrape
+            await self.updateparsed() #Start our first API scrape
         except Exception as error :
             #We catch any errors that happen on the first update and log them
             #It shouldn't happen, but we need to catch it or our wrapper would
@@ -430,6 +432,8 @@ class APIContext :
                 #print("savedstreams removing",stream)
                 #Send it to removemsg to edit/delete the message for everyone.
                 await self.removemsg(rec=None,recid=stream)
+        #If the stream is still online, the message for it will be updated in
+        #5 minutes, same as if it were just announced.
         #while not loop keeps a background task running until client closing
         while not self.client.is_closed() :
             try :
@@ -448,7 +452,12 @@ class APIContext :
                 traceback.print_tb(error.__traceback__)
 
     async def updatetask(self):
+        '''Updates the API information and performs any necessary tasks with
+           that info. This should handle the actual work portion of updating,
+           with the wrapper merely ensuring that this is called and that errors
+           are caught safely, without prematurely exiting the task.'''
         if not self.client.is_closed(): #Don't run if client is closed.
+            mydata = self.mydata #Ease of use and speed reasons
             oldlist = self.parsed #Keep a reference to the old list
             if not await self.updateparsed() :
                 #Updating from the API failed for some reason, likely it's down
@@ -461,52 +470,60 @@ class APIContext :
             newstreams = newset - oldset #Streams that just came online
             oldstreams = oldset - newset #Streams that have gone offline
             curstreams = newset - newstreams #Streams online that are not new
-            removed = [] #List of streams too old and thus removed
+            #Stores the current UTC aware time
+            curtime = datetime.datetime.now(datetime.timezone.utc)
             #Search through streams that have gone offline
             #DBCOffline is used to track streams that have gone offline or
             #have stayed online. Once the counter has hit a certain threshold
             #the streams is marked as needing announcements deleted/updated.
             for gone in oldstreams :
-                rec = oldlist[gone] #Record from last update
-                if 'DBCOffline' in rec : #Has been offline in a previous check
-                    rec['DBCOffline'] += 1
-                else :
-                    rec['DBCOffline'] = 1 #Has just gone offline
-                #If the stream has not been gone the last offlinewait updates, readd it
-                if rec['DBCOffline'] < offlinewait :
-                    self.parsed[gone] = rec
-                else :
-                    #Otherwise we assume it's not a temporary disruption and add it
-                    #to our list of streams that have been removed
-                    removed.append(gone)
-            mydata = self.mydata #Ease of use and speed reasons
+                #We only do this for streams someone is watching. Otherwise they got
+                #dropped immediately.
+                if gone in mydata['AnnounceDict'] :
+                    rec = oldlist[gone] #Record from last update
+                    if 'DBCOffline' in rec : #Has been offline in a previous check
+                        print("removemsg",rec,curtime)
+                        #Check if streams been gone longer than offlinetime
+                        if (curtime - rec['DBCOffline'] < datetime.timedelta(seconds=offlinetime)) :
+                            #If not, move it into the current list.
+                            self.parsed[gone] = rec
+                        else :
+                            #Otherwise we assume it's not a temporary disruption and add it
+                            #to our list of streams that have been removed
+                            #print("Removing",gone)
+                            await self.removemsg(rec) #Need to potentially remove messages
+                    else :
+                        #Stream is newly offline, record the current time
+                        rec['DBCOffline'] = curtime
+                        #And move it into the current list for later checking.
+                        self.parsed[gone] = rec
+                        #We also update the stream to mark it potentially offline
+                        await self.updatemsg(rec)
             for new in newstreams :
+                #This is a new stream, see if someone is watching for it
                 if new in mydata['AnnounceDict'] :
                     rec = self.parsed[new]
                     #print("I should announce",rec)
                     await self.announce(rec)
+                    #Store the current time in the new record
+                    rec['DBCOnline'] = curtime
             for cur in curstreams :
                 if cur in mydata['AnnounceDict'] : #Someone is watching this stream
                     oldrec = oldlist[cur]
                     rec = self.parsed[cur]
-                    #print("I should announce",rec)
                     if 'DBCOnline' in oldrec : #Was online last check
-                        if oldrec['DBCOnline'] >= 4 :
-                            #Update the stream every 5 minutes.
-                            #New record will have no count, resets timer.
+                        if (curtime - oldrec['DBCOnline'] > datetime.timedelta(seconds=updatetime)) :
+                            #print("I should update",rec)
+                            #It's time to update the stream
                             await self.updatemsg(rec)
+                            #Store the current time in the new record
+                            rec['DBCOnline'] = curtime
                         else :
-                            #Add the count to the new record
-                            rec['DBCOnline'] = oldrec['DBCOnline'] + 1
+                            #Add the last updated time to the new record
+                            rec['DBCOnline'] = oldrec['DBCOnline']
                     else :
-                        #Start the count in the new record
-                        rec['DBCOnline'] = 1 #Has just gone offline
-            for old in removed :
-                if old in mydata['AnnounceDict'] : #Someone is watching this stream
-                    #print("Removing",old)
-                    rec = oldlist[old]
-                    await self.removemsg(rec) #Need to potentially remove messages
-            return
+                        #Store the current time in the new record
+                        rec['DBCOnline'] = curtime
 
     async def removemsg(self,rec,serverlist=None,recid=None) :
         '''Removes or edits the announcement message(s) for streams that have
@@ -652,6 +669,10 @@ class APIContext :
                     #print("2",repr(e))
                     pass
                 if oldmess :
+                    msg = oldmess.content
+                    #If the stream appears to be offline now, edit the announcement slightly.
+                    if 'DBCOnline' in rec :
+                        msg = msg.replace("has come online! Watch them","was online")
                     if typeopt == "noprev" :
                             await oldmess.edit(content=oldmess.content,embed=noprev)
                     else :
@@ -660,10 +681,10 @@ class APIContext :
                         adult = await self.getoption(server,'Adult',recid)
                         if isadult and (adult != 'showadult') :
                             #hideadult or noadult, same as noprev option
-                            await oldmess.edit(content=oldmess.content,embed=noprev)
+                            await oldmess.edit(content=msg,embed=noprev)
                         else :
                             #Otherwise show the preview
-                            await oldmess.edit(content=oldmess.content,embed=myembed)
+                            await oldmess.edit(content=msg,embed=myembed)
 
     #Announce a stream is online. oneserv only sends the message on the given
     #server, otherwise find all servers that should announce that name.                
@@ -1126,7 +1147,7 @@ class APIContext :
                     msg += "\n**The last attempt to update the API failed**, the API may be down. Please try your command again later."
                 await message.channel.send(msg)
                 return
-            elif command[0] == 'remove' :
+            elif command[0] == 'oldremove' :
                 if command[1] in mydata["AnnounceDict"] :
                     try : #We need to remove the server from that streams list of listeners
                         mydata["AnnounceDict"][command[1]].remove(message.guild.id)
@@ -1164,7 +1185,7 @@ class APIContext :
                 msg = "Ok, I will no longer announce when " + command[1] + " comes online."
                 await message.channel.send(msg)
                 return
-            elif command[0] == 'removemult' :
+            elif command[0] == 'remove' :
                 if not (message.guild.id in mydata["Servers"]) :
                     #Haven't created servers info dict yet
                     await message.channel.send("No streams are being listened to yet!")
