@@ -8,6 +8,8 @@ import aiohttp #Use this for any API requests - nonblocking. DO NOT use request!
 import json #Interpreting json results - updateparsed most likely needs this.
 import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
+import time #Attaches to thumbnail URL to avoid discord's overly long caching
+import datetime #Stream durations, time online, etc.
 
 parsed = {} #Dict with key == 'user_name', filled by basecontext.updateparsed
 lastupdate = [] #Did the last update succeed?
@@ -35,17 +37,29 @@ class TemplateContext(basecontext.APIContext) :
         #basecontexts version can handle most cases, now that it's been generalized
         #If you don't need any special handling of the call or output, can be deleted
 
-    #Gets the detailed information about a channel. Used for makedetailmsg.
-    #It returns a channel record.
-    async def agetchannel(self,channelname) :
+    #Gets the detailed information about a stream. Used for makedetailmsg.
+    #It returns a stream record.
+    async def agetstream(self,channelname) :
         #basecontexts version can handle most cases now that it's been generalized
         #If you don't need any special handling of the call or output, can be deleted
+        #To see an example of overriding, look at piczel class, which needs to
+        #modify the return a bit before passing it along.
 
     async def getrecname(self,rec) :
         #Should return the name of the record used to uniquely id the stream.
         #Generally, rec['name'] or possibly rec['id']. Used to store info about
         #the stream, such as who is watching and track announcement messages.
         return rec[=]
+
+    async def getrectime(self,rec) :
+        '''Time that a stream has ran, determined from the API data.'''
+        #If the API returns any kind of data about stream length, it should go
+        #here. The following works as a default return, as it's only ever used
+        #in a max function with the time since the message was made. Some streams
+        #use it in the detail embed as well, so you may want it there too.
+        #Default return, duration of 0 seconds. It is safe to delete this
+        #function, as basecontext has a working version.
+        return datetime.datetime.now(datetime.timezone.utc) - began
 
     #The embed used by the default message type. Same as the simple embed except
     #that we add on a preview of the stream.

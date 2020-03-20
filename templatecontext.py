@@ -1,6 +1,7 @@
 #context template to base new contexts on
 #This file has all the items required by the dbcontext bot to be valid.
 #Some values/functions WILL need to be updated.
+#This is mostly superceded by the class based version, but is still functional.
 
 #IMPORTANT - discord.py is based on coroutines, which are asynchronous and allow
 #for easier management of multiple threads. Most functions you use in this should

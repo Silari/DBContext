@@ -1,43 +1,18 @@
 #discord bot with module based functionality.
-#Now based on discord.py version 1.2.5
+#Now based on discord.py version 1.3.2
 
-#Todo for 0.8:
-#Add in "streamoption streamname <options>" for overriding options per stream?
-#getoption supports reading if set in ['COver'][guildid][rec]['Option'][option]
-#Done, not at all tested. Added new setstreamoption which handles the setting,
-#including making the nested dicts.
+#TESTING NOTES
+#Completed and testing:
+#SavedMSG now in mydata, should hold through restarts
+##Need to check on restart if saved streams are still in parsed, if not delete
 
-#Add messages when using certain commands if the API is currently down - ie failed last update
-##Done, test? add/addmult, detailannounce when failed, 
+#Change remove/removemult to not bother checking the message type. removemsg
+#does it already.
 
-#Todo for 0.9:
-#VERY IMPORTANT
-#Start using getoption for anything that needs to get an option. That provides
-#free support for any of the overrides/global options/etc. Especially announce
-#stuff - creation/editing.
-
-#Really need to fix a lot of the error handling. When I was writing it it was
-#better to just catch stuff and ignore it but a lot of keyerror things shouldn't
-#happen anymore, and if it does something went wrong that I need logs of (like
-#the issue with announce not using getoption)
-
-#If set to listen in a channel, via listen or listen <chan>, PM the user setting
-#the message if the bot does not have view, or send message permission in the
-#channel given.
-
+#Todo:
 #Rewrite the messages so they're marked offline quicker, with the message being
 #reused if it comes back within 10 minutes. Basically just change the edit message
 #part to note that it is currently offline?
-
-#Clean up various uses of server to guild, to match discord.py/Discord usage
-#instead of server.
-##Likewise, should ensure I always use stream to refer to a stream from picarto/etc
-##and not channel, to avoid confusing the discord term with it.
-###getchannel when i wanted resolvechannel already got me once, ffs
-####This means doing a lot of find/replace, so I'm holding off until next version
-
-#maybe rewrite stop to not clear the listen channel. Instead things would check
-#COver for the stop, possibly in getchannel
 
 #Need some way to say that an API doesn't support an option, like twitch for adult
 #Thought about getoption=None but that's the fallback if it doesn't exist.
@@ -50,180 +25,107 @@
 #Maybe give contexts a 'commands' list so that it's easier to see what are valid?
 #help could use this to see what contexts have a particular command.
 
-##Can also allow "PWNotify" role that can get @'d if proper option is set.
-###Do this via reacting to a message sent by the bot. Can unreact to unset?
-
 #Add a module named Global for handling global settings - pretty simple data layout
 #ServerID->['Channel'],['MSG'],['Type'], etc.
 #Need to add a way for modules to READ but not WRITE this - getglobal(globalname)?
 #Reading done, but still need a way to set this.
 ##See below, module options instead
 
-#Similar to parsechannel, add a getoption(Type) to resolve an option setting
-#Probably add a defaultoptions dict to basecontext to control what to return
-#when there isn't one set. defaultopts = {'Type':'default','MSG':'edit'}
-#Again, this can handle getting the global value via getglobal if needed.
-#Done, apart from global. global ALSO done, just need to be able to set it
-##ALSO need a way to delete options. Both from the global store and context store
-###Previously this was going to be through manage setopt, but thinking about it
-###I'd rather make a new module for it, options, and direct things to use that
-###whenever possible, rather than invoking it for each APIContext. Simpler.
-####Deleting options is done in streamoption with the 'clear' option, which deletes em all.__call__
+#Still need to think about a module to set things globally - the backend is there
+#already with getoption+getglobal but there's no way to set them. It just uses
+#the default option dict.
 
-#General TODO list/ideas:
-#maybe have it announce online channels if it hasn't announced them before -
-#ie was offline when they came online, rather than only when they first come online
-##This would require either constantly going through the entire online list and finding
-##which don't have a saved channel, or modifying updatewrapper to hold off on
-##the first update until it can use that to add any messages it needs to.
-###On the other hand, doing it that way would mean that I could save the savedmsgs
-###onto disk in case of shutdown, then on load match those back up automatically
-###to still running streams/edit them to offline if needed. That'd be nice.
-#Maybe a way to permalink a message to a stream so that it always edits that one
-#message instead, never making a new one. Seems kinda pointless, but easy enough
-#New option - 'single', that says to do this? ###Don't think I will cause you want
-###the new message so people get notified.
+#SIMILAR TO ABOVE: maybe a dict with the allowed option TYPES? Then again that
+#could be gotten from the defaultopts list maybe? Except that's global! so mods
+#can't access it directly.
+##Maybe a dict with {'OptName':set(val1,val2,val3),'OptName2':set(True,False)}
+##Then I have an easy to access and change list of groups and their allowed
+#values
 
-#Kinda similarly, something to move a savedmsg to a new channel if the channel
+#Might want to rewrite remove/removemult to call a common function to handle
+#all the stuff that needs to be done to remove a stream. Save some code, easier
+#to update/fix with one location instead.
+#maybe can do similar for add/addmult.
+
+#Something to move a savedmsg to a new channel if the channel
 #gets changed. So 'add stream <channel>' would delete the old message and make a
 #new one in the proper channel.
 
-#Should look and see if it's easy to determine stream length for picarto/twitch/piczel
-#The current version works ok, but if I do end up moving messages like above then
-#that'll reset the msgid, which resets the start time. If it's already present in
-#the record in parsed, should be easy enough to grab it. If not, then msgid is fine
+##Can also allow "PWNotify" role that can get @'d if proper option is set.
+###Do this via reacting to a message sent by the bot. Can unreact to unset?
 
-#Holdover from 0.5:
-#Add role management permission - DONE
-
-#@Bot announce - announces here for all?
-#@Bot announce <channel> - announce in <channel> for all?
-
-#All modules TODO
 #Option to @here - probably better handled by channel notifications user side
 ##Adding in the notify role instead, so that'd handle it just fine.
 
-#Redo detail announce so that it responds in the channel it was requested in?
+#TODO for 1.0
+#NEED to rename dbcontexts.bin and double check everything works still. Might be
+#some spots I forgot to check that certain things exist. The default dicts should
+#handle the major sections, but I don't think I tested that.
 
-version = 0.8 #Current bot version
-changelog = {}
-changelog["0.8"] = '''0.8 from 0.7 Changelog:
+#Change permission to use the bot to manage server? I think that's what allows
+#someone to invite a bot to begin with, and at that point they should be able to
+#control this one.
+
+#Account for options changing after initial announcement. I've caught a few of
+#these but especially removemsg assumes that an embed is already present: if the
+#type was changed from simple to the others and then goes offline it doesn't get
+#an embed. There's already an if embeds>0 check, have else newembed = (make new embed)
+#and to_dict() it, then move the if 'image' and past it out of the if, as there'd
+#always be a newembed dict at that point.
+#Remove client from contexts. They don't need it for send_message anymore
+#Currently only used for get_channel and wait_until_ready
+
+#Redo the updatetask to not bother with DBCOffline/DBCOnline unless the stream
+#is in mydata['AnnounceDict']. If no one is watching a stream, we can just remove
+#it immediately. Looks like curstreams does this already. Can probably fiddle
+#with it and merge the for old in removed with for gone in oldstreams.
+
+#Change announce to channel - all it really does now is set the default channel
+#Hell, maybe remove it entirely and use option instead? Could set channel the
+#same way streamoption does.
+
+#Is there a reason to keep addmult/removemult separate? They share the same
+#functionality is their single counterparts, including the channel override.
+#Only reason to keep add separate would be to allow settings options with the
+#add command - <stream> <option1> <option2>. Not sure that's needed though.
+
+version = 0.9 #Current bot version
+changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
+#We're not keeping the changelog in here anymore - it's too long to reliably send
+#as a discord message, so it'll just be kept on the wiki. Latest version will be
+#here solely as an organizational thing, until it's ready for upload to the wiki
+#proper.
+changelog = '''0.9 from 0.8 Changelog:
 GENERAL
-Added adult/noadult option. Will hide streams that are marked as adult, if the API supports it.
-  Please note that this is based on the streamer setting that option appropriately, and that previews may be cached from non-safe periods both on the API and user side.
-  Do not rely on this option to perfectly shield your users from potentially NSFW content.
-  list command will state if adult streams are enabled or not.
-'manage check' command now explicitly lists if members are a bot: bots never have permission to address the bot.
-'manage create <channelmention>' command added - will create the bot role if necessary, and then add a permission override for the given channel for read + send messages.
-stop command now unsets announcement channel and prevents new announcements from being made, even if they have an overridden announcement channel.
-  Using listen will start announcements again. Old announcements will still be edited/removed when applicable.
-  list command will state if the stop command is currently active.
-list command now shows channel overrides when present.
-announce command will cause the bot to announce any live streams that have not been announced.
-calling the help module with a context name will pass the help command to that module.
-Fixed an error in basecontext that prevented help from working.
-twitch streams now handle not having a game id set.
-'streamoption <streamname> <option>' command added, which sets an option only for the given stream.
-PICZEL
-Modified code for API change to avatar url location
-Please see the github for further items.'''
-changelog["0.7"] = '''0.7 from 0.6 Changelog:
-GENERAL
-Added stream length to edited announcement messages.
-listen command changed to allow mentioning a channel to make it the announcement channel. If none given, it is still the channel the command was given in.
-add command now allows mentioning a channel after the stream name to make that stream announce in the mentioned channel, rather than the default listen channel.
-addmult also now allows mentioning a channel to set a channel override for all the channels given. It can be anywhere in the command.
-addmult now strips a trailing comma from channel names if present, to allow for copy/pasting the output of the list command without modification.
-remove and removemult commands now deletes/stops editing current announcement for the deleted stream.
-Fixed an issue where streams were marked as offline before the proper wait time.
-Quitting using the debug quit command now exits with status code 42, to allow for checking of intentional stoppage.
-  Bot exit due to other reasons (SIGINT/SIGTERM/etc) is handled better, but still needs work.
-API based modules now track if the last API update succeeded. Failure will be noted in the list command.
-Please see the github for further items.'''
-changelog["0.6"] = '''0.6 from 0.5 Changelog:
-GENERAL
-Data saving made more robust, and most errors should be found before attempting to save data.
-Activity is re-set when resuming connection.
-list command for all modules links to the set announcement channel, instead of just saying the name.
-API based modules rewritten to be classes, inheriting from a common basecontext class.
-basecontext caches record IDs to avoid needing multiple calls.
-basecontext handles attempting announcement in a server it is not a member of.
-basecontext handles attempting editing announcement when no announcement was saved.
-basecontext uses more specific exceptions for error catching, to avoid hiding unexpected errors.
-Closing the bot is handled more gracefully.
-Twitch module now uses properly aiohttp for all connections.
-Added a small purpose-built module for one server to handle unwanted role changes.'''
-changelog["0.5"] = '''0.5 from 0.4 Changelog:
-GENERAL
-Updated for discord.py current version: 1.1.1.
-  This should make the bot considerably more reliable in case of internet or server outages.
-Link to online version of help on the github page added.
-Added removemult command - removes multiple streams, separated by space, same as addmult.
-Bot nows shows the typing status while responding to commands.
-Updated API parsing to handle 0-byte returns. Update will be skipped for that cycle.
-  Both picarto and piczel were updated. Twitch has not due to differences in the API.
-Changed internal handling of module data - no longer passed to the handler.
-Fixed list command for all modules not checking if server options exist.
-Fixed addmult command for all modules failing if channel was already added.
-Changed data storage name to dbcontexts.bin.
-MANAGE MODULE - NEW
-Added. Allows for easier managing of roles allowing bot usage. Requires Manage Roles permission!'''
-changelog["0.4"] = '''0.4 from 0.3 Changelog:
-GENERAL
-Add piczel.tv support.
-Renamed code files.
-All API keys moved to a separate file for security.
-All modules support setting multiple options at once. Later options overwrite previous options if conflicting.
-Periodic saving of data ACTUALLY running.
-Minor internal code changes to better support context framework.
-Background tasks are now properly cancelled on exit, refactored task creation.
-Important messages are sent to any server which has registered a listening channel.
-  Typically these are announcements of update rollouts, or possibly downtimes
-PICZEL MODULE - NEW
-Added. Commands are identical to picarto module, minor output differences.
-PICARTO MODULE
-Split into own module, instead of inline with discordbot code.
-Detail command now returns a message if a user was not provided.
-Now supports editing of announcement messages with current info, including if stream is offline
-  Optionally, can delete the announcement when channel goes offline
-TWITCH MODULE
-Detail command now returns a message if a user was not provided.
-Now supports editing of announcement messages with current info, including if stream is offline
-  Optionally, can delete the announcement when channel goes offline'''
-changelog["0.3"] = '''0.3 from 0.2 Changelog:
-GENERAL
-Added Twitch.tv stream support.
-context data is now merged onto default data rather than replacing it entirely.
-Context data now saves regularly, as well as at shutdown.
-Bot now shows a Playing message with the command for help.
-PICARTO MODULE
-Add commands now verify stream names during adding. Avoids issues with mismatched capitalizations/misspellings.
-Added option for how announcements are displayed - default, no preview (noprev), and simple.
-List command now shows currently online streams in bold.
-Added addmult command to add multiple streams at once.
-Refactor update thread to catch errors and resume updates afterwards.
-Refactor help to show when help command OR no command.
-TWITCH MODULE
-Added. Commands are identical to picarto module, minor output differences.'''
-changelog["0.2"] = '''0.2 from 0.1 Changelog:
-GENERAL
-Change trigger to be an @mention
-Bot now ignores all bot users.
-Users with a Role named <Bot Discord Name> have permission to use bot commands.
-  Administrators on the server will always have permission to use commands.
-Removed some debug stuff.
-Added code to hopefully save data if process is SIGTERMd. Periodic saves coming soon.
-PICARTO MODULE
-Added limit of 100 listens per server.
-Changed announce method to a media-rich embed with channel avatar and preview.
-Added 'detail' command which responds with announce-style window with more info.
-Adding a watched channel will announce that channel immediately if online.
-Updated help to current functionality.
-Changed Request module to aiohttp to avoid blocking.
-Small refactor on update thread to not run an unneeded final update when shutting down.
-HELP MODULE
-Added version and changelog commands.'''
-changelog["0.1"] = "0.1 Changelog:\nInitial Version."
+Added resume command - resumes announcements after stop command
+  stop command no longer unsets the announcement channel
+Added new adult options - showadult (default, show all adults streams), hideadult (adult streams never have a preview), and no adult (adult streams are not announced, hides preview if already announced).
+Added timestamp to picarto/piczel/twitch thumbnail URLs to avoid Discord's overly long caching.
+Added new option - clear. Removes all set options (except announce channel)
+Added streamoption command. Allows setting any option on a per stream basis, rather than server wide. Can also set announcement channel for the stream.
+Bot now remembers announcements after quitting. Messages will be edited/removed when the bot comes back online.
+Changed removemult command to allow a trailing ',' same as addmult does.
+Stream length times are more accurate in cases of API/bot downtime; uses API info to get the length of a stream.
+  Limited use on Picarto due to API constraints - stream length isn't given when checking online streams, only the detailed channel info (which is only used by detailannounce). If this data is added later, the bot will automatically use it.
+Added stream length time to picarto/piczel/twitch detail announce, rearranged order of items.
+Added follower count to piczel detailed announce.
+Bot will check if it lacks permission to send messages to the listen channel, and add the issue to it's response to the command.
+  Note that if the listen channel is where the command was sent, the reply will fail due to the issue.
+  There is already a PM sent to the user if that is the case.
+Fixed bug in announce command that caused it to count all live streams instead of just non-announced ones.
+Fixed bug in offline message editing when previews weren't being used.
+announce and help commands will now include a message if the last API update failed.
+Fixed and updated help commands, rewrote some to add details/clarity. 
+API reads will return None if the API call timed out, allowing for more detailed error messages.
+  Currently, detailannounce will explicitly state if the API call timed out.
+API reads will return 0 if the API returns a Not Found error.
+  Currently, add and detailannounce will explicitly state if the requested stream was not found.
+announce handles Forbidden errors when sending the announcement.
+Added missing help description for manage create command.
+Fixed add command always stating the message channel was being used for announcements even when mentioning a channel
+Fixed listen always using the message channel as the listen target, even when mentioning a channel.
+Fixed issue with Twitch API when gameid is set to ''
+'''
 
 #Import module and setup our client and token.
 import discord
@@ -393,54 +295,44 @@ async def handler(command, message, handlerdata) :
     return
 
 async def helphandler(command, message) :
-##    if command :
-##        msg = 'For help with a specific context, please use "<context> help"'
-##        await message.channel.send(msg)
-##    else :
-    #print("help", command)
-    if len(command) > 0 :
+    if len(command) > 0 : #We were given additional paramters
+        #Let's see if it's a command we understand.
         if command[0] == "version" :
             msg = client.user.name + " bot version " + str(version)
             msg += ". Please use the 'help changelog' command for update details."
             await message.channel.send(msg)
-        elif command[0] == "versions" :
-            msg = "The following versions of PicartoWatch exist: "
-            msg += ", ".join(changelog)
-            await message.channel.send(msg)
+            return
         elif command[0] == "changelog" :
-            #print(len(command))
-            if len(command) == 1 :
-                command.append(version)
-            try :
-                msg = changelog[str(command[1])]
-                await message.channel.send(msg)
-            except (KeyError, ValueError) as e :
-                msg = "No changelog exists for version " + str(command[1])
-                await message.channel.send(msg)
+            msg = "The complete changelog can be found at <" + changelogurl + ">, due to length."
+            msg += "Current version is: " + str(version)
+            await message.channel.send(msg)
+            return
         elif command[0] == "help" :
             msg = "PicartoWatch bot version " + str(version)
             msg += "\nThe following commands are available for 'help':"
             msg += "\nhelp, changelog, invite, version, versions"
             await message.channel.send(msg)
+            return
         elif command[0] == 'invite' :
             msg = "I can be invited to join a server by an administrator of the server using the following links\n"
             msg += "\nNote that the link includes the permissions that I will be granted when joined.\n"
-            msg += "\nIf you do not wish to use the manage module: <" + invite + ">"
-            msg += "\nIf you wish to use the manage module: <" + roleinvite + ">"
-            msg += "\nNote that if the bot is already in your server, re-inviting will NOT reset permissions."
+            msg += "\nThe current link is: <" + roleinvite + ">"
+            msg += "\nIf the bot is already in your server, re-inviting will NOT change the current permissions."
             await message.channel.send(msg)
+            return
         elif command[0] in contfuncs : #User asking for help with a context.
             #Redirect the command to the given module.
             #print("cont help", ["help"] + command[1:])
             await contfuncs[command[0]](["help"] + command[1:],message)
-    else :
-        msg = "PicartoWatch bot version " + str(version)
-        msg += "\nOnline help and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
-        msg += "\nPlease use '<module> help' for help with specific modules"
-        msg += "\nThe following modules are available for use: " + ", ".join(contexts)
-        msg += "\nI listen to commands on any channel from users with the Administrator role in channel."
-        msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
-        await message.channel.send(msg)
+            return
+    msg = "PicartoWatch bot version " + str(version)
+    msg += "\nOnline help, and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
+    msg += "\nThe complete changelog can be found at <" + changelogurl + ">"
+    msg += "\nPlease use '<module> help' for help with specific modules"
+    msg += "\nThe following modules are available for use: " + ", ".join(contexts)
+    msg += "\nI listen to commands on any channel from users with the Administrator role on the server."
+    msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
+    await message.channel.send(msg)
 
 newcontext("help",helphandler,{})
 
@@ -449,7 +341,7 @@ defaultopts = {
     'MSG':'edit', #Should messages be edited and/or removed after announcement?
     'Stop':False, #Should no new announcements be made?
     'Channel':None, #Default channel to announce in is no channel.
-    'Adult':True #Should streams marked adult be shown normally?
+    'Adult':'showadult' #Should streams marked adult be shown normally? 
 }
 
 globalops = {}
@@ -472,7 +364,7 @@ async def getuserrole(guild) :
         #Named after the bot, no permissions, no color, non-hoist, non-mentionable.
         try :
             userrole = await guild.create_role(reason="Role created for bot management",name=client.user.name)
-        except : #May not have permission, dunno what else.
+        except discord.Forbidden : #May not have permission
             pass #This should leave userrole as none
     return userrole
 
@@ -495,9 +387,10 @@ async def managehandler(command, message) :
     message.guild.me.top_role.position
     if command[0] == 'help' :
         msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
-        msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands."
+        msg += "\ncreate <#channel>: Creates the user role to manage the bot, and adds an override to allow them to send messages in #channel. #channel MUST be a channel mention."
+        msg += "\ncheck <username#0000>: Check if given user(s) have access to bot commands. Separate user names with spaces."
         msg += "\nadd <username#0000>: Gives permission to one or more users to access bot commands. Note that bot accounts are ALWAYS ignored."
-        msg += "\nremove <username#0000>: Revokes permission to one or more users to access bot commands. Note that channel admins ALWAYS have bot access!"
+        msg += "\nremove <username#0000>: Revokes permission to one or more users to access bot commands. Note that server admins ALWAYS have bot access!"
         if not message.channel.permissions_for(message.guild.me).manage_roles :
             msg += "\n**Bot does not** have permission to manage user roles. Only check and help commands are active."
             msg += "\Please manually add the 'manage roles' permission to make use of additional features."
@@ -612,20 +505,21 @@ newcontext("manage",managehandler,{})
 
 async def debughandler(command, message) :
     #'safe' commands like help can go up here
-    if len(command) > 0 and command[0] == 'help' :
+    #If there wasn't a command given, or the command was help
+    if len(command) == 0 or command[0] == 'help' :
         msg = "Debug module. This module is used for debugging/testing and notifying servers of updates/downtimes/etc."
         msg += "\nIt can not be used by anyone other than the bot developer."
         await message.channel.send(msg)
         return
+    #Unsafe commands go down here
     if not (message.author.id == 273076937474441218) :
         #print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         #await message.channel.send("Sorry, you are not the developer and do not have access to this command.\nThe debug feature should not be loaded into the public version of PicartoWatch.")
         return
-    if len(command) == 0 :
-        return
     if command[0] == 'embed' :
-        rec = await picartocontext.agetchannel(command[1])
+        #Debug to create detail embed from picarto stream
+        rec = await picartocontext.agetstream(command[1])
         description = rec['title']
         myembed = discord.Embed(title=rec['name'] + " has come online!",url="https://picarto.tv/" + rec['name'],description=description)
         value = "Multistream: No"
@@ -648,6 +542,7 @@ async def debughandler(command, message) :
         await message.channel.send(msg)
     elif command[0] == 'replyeval' :
         msg = eval(" ".join(command[1:]))
+        #print(msg)
         await message.channel.send(msg)
     elif command[0] == 'sendall' :
         await sendall(" ".join(command[1:]))
@@ -665,6 +560,19 @@ async def debughandler(command, message) :
         #This lets us see if the last update API call for our stream classes worked
         #print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
         await message.channel.send("Pica: " + picartoclass.lastupdate + "Picz: " + piczelclass.lastupdate + "Twit: " + twitchclass.lastupdate)
+    elif command[0] == 'checkstreams' :
+        streams = 0
+        for module in classcontexts :
+            try :
+                for server in module.savedmsg :
+                    streams += len(module.savedmsg[server])
+            except :
+                pass
+        await message.channel.send("Total online streams: " + str(streams))
+    elif command[0] == 'checkservers' :
+        #debug replyeval repr(client.guilds)
+        #above gives details on servers
+        await message.channel.send("I am currently in " + len(client.guilds) + " servers.")
     elif command[0] == 'channelperms' :
         #Gets the effective permissions for the bot in the given channel id
         if len(command) > 0 :
@@ -690,14 +598,8 @@ async def sendall(msg) :
     #print("sendall:",msgset)
     for servchan in msgset :
             channel = client.get_channel(servchan)
-            #channel = client.get_channel(mydata['Servers'][server]["AnnounceChannel"])
             if channel : #We may no longer be in the server which would mean no channel
                 await channel.send(msg)
-
-#I don't remember what this was for.
-#I think it was a debug thing which isn't needed due to the debug context
-def sendmessage(channel,chanid) :
-    pass
 
 #Message contains:
 #author - Member that sent message, or User if PM
@@ -746,23 +648,25 @@ async def on_member_update(before, after) :
         userrole = discord.utils.find(lambda m: m.id == 336063609815826444, after.guild.roles)
         await after.add_roles(userrole,reason="Re-adding removed patreon role")
 
+#The main event handler: handles all incoming messages and assigns them to the
+#proper context/replies to DMs.
 @client.event
 async def on_message(message):
     #Ignore messages we sent
+    #print("on_message")
     if message.author == client.user :
         return
-    else :
-        pass
     #We ignore any messages from other bots. Could lead to bad things.
-    if message.author.bot :
+    elif message.author.bot :
         return
-    #Currently we ignore PMs. Later, this will prompt the basic help dialog.
+    #print("not us or a bot")
     if not message.guild : #PMs just get a help dialog and then we're done.
         msg = client.user.name + " bot version " + str(version)
         msg += "\nPlease use '@" + client.user.name + " help' in a server channel for help on using the bot."
         msg += "\nOnline help is also available at <" + helpurl + ">."
         await message.channel.send(msg)
         return
+    #print("not a PM")
     hasrole = False
     #Check if one of the users roles matches the bot's name
     for item in message.author.roles :
@@ -770,8 +674,11 @@ async def on_message(message):
         if client.user.name == item.name :
             hasrole = True
             #print(hasrole, item.name, client.user.name)
+    #print("hasrole", hasrole,":",message.author.guild_permissions.administrator)
     #The bot listens to anyone who is an admin, or has a role named after the bot
     if message.author.guild_permissions.administrator or hasrole :
+        #print("passed check",message.content)
+        #print('<@!' + str(client.user.id) + ">",":",client.user.mention)
         if message.content.startswith('<@!' + str(client.user.id) + ">") :
             command = message.content.split()
             #print("Listening for message", len(command))
@@ -781,10 +688,28 @@ async def on_message(message):
                 msg += "\nOnline help is available at <" + helpurl + ">."
                 await message.channel.send(msg)
             elif command[1] in contexts :
-                async with message.channel.typing() :
-                    await getcontext(command[1],message)
+                #print("calling module",command[1], command[2:])
+                #If we don't have permission to send messages in the channel, don't use
+                #the typing function as that would throw Forbidden.
+                if not message.channel.permissions_for(message.guild.me).send_messages :
+                    msg = "I do not have permission to respond in the channel you messaged me in. While I will still attempt to perform the command, any error or success messages will fail."
+                    try :
+                        await message.author.send(msg)
+                    except discord.Forbidden : #We aren't allowed to DM the user
+                        pass #nothing to do here
+                    #This is a separate block because we need to do both even if
+                    #the first fails, and we still need to ignore Forbidden in
+                    #the second part.
+                    try :
+                        await getcontext(command[1],message)
+                    except discord.Forbidden : #Chances are we're going to fail
+                        pass #still nothing to do here
+                else :
+                    #If we can send messages, use the context manager
+                    async with message.channel.typing() :
+                        await getcontext(command[1],message)
             else :
-                msg = "Unknown command '" + command[1] + "'."
+                msg = "Unknown module '" + command[1] + "'. Remember, you must specify the module name before the command - e.g. 'picarto " + " ".join(command[1:]) + "'"
                 await message.channel.send(msg)
 
 #Used when joining a server. Might want something for this.        
@@ -794,19 +719,22 @@ async def on_message(message):
 
 @client.event
 async def on_resumed() :
-    #Ensure our activity is set when resuming.
+    #Ensure our activity is set when resuming and add a log that it resumed.
     print("Client resumed")
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
+#Fires when the bot is up and running. Sets our presence and logs the connection
 @client.event
 async def on_ready() :
     print("------\nLogged in as")
     print(client.user.name)
     print(client.user.id)
     print("------")
-    #We set our activity here - we can't do it in the client creation because we don't have the user name yet
+    #We set our activity here - we can't do it in the client creation because
+    #we didn't have the user name yet
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
+#Old method to close tasks and log out
 def closebot() :
     myloop.run_until_complete(client.logout())
     for t in asyncio.Task.all_tasks(loop=client.loop):
@@ -825,6 +753,7 @@ def closebot() :
             pass
     myloop.run_until_complete(asyncio.sleep(0.25))
 
+#Logs the bot out and ends all tasks
 async def aclosebot() :
     await client.logout()
     for t in asyncio.Task.all_tasks(loop=client.loop):
@@ -845,11 +774,14 @@ async def aclosebot() :
     await asyncio.sleep(0.25)
 
 async def savecontexts() :
+    '''Saves the data for all contexts to a file.'''
     try :
+        #Copy the current contexts into a new dictionary
         newcont = copy.deepcopy(contexts)
     except asyncio.CancelledError : #Task was cancelled, so quit.
         return
     except Exception as e :
+        #Any errors, log them as that's a serious problem.
         print("Error in deepcopy:",repr(e))
         #print(contexts)
         return
@@ -857,17 +789,20 @@ async def savecontexts() :
         #Dump contexts to a Bytes object - if it fails our file isn't touched
         buff = pickle.dumps(newcont,pickle.HIGHEST_PROTOCOL)
         with open('dbcontexts.bin',mode='wb') as f:
-                #Actually write the data to the buffer
+                #Now we actually write the data to the file
                 f.write(buff)
     except asyncio.CancelledError : #Task was cancelled, so quit.
+        #Note that closing will save the contexts elsewhere, so we don't care
+        #that we're potentially skipping a save here.
         return
     except Exception as e :
+        #Again, log errors as those are potentially serious.
         print("error in savecontext",repr(e))
         #print(newcont)
 
 async def savetask() :
-    #Saves data every five minutes. Stops immediately if client is closed so it
-    #won't interfere with the save on close.
+    #Calls savecontext every five minutes. Stops immediately if client is closed
+    #so it won't interfere with the save on close.
     while not client.is_closed() :
         try :
             #These were broken up into minute chunks to avoid a hang when closing
@@ -892,6 +827,7 @@ async def savetask() :
                 except Exception as e :
                     print("Error in savetask:", repr(e))
         except asyncio.CancelledError :
+            #Task was cancelled, so immediately exit. Bot is likely closing.
             return
 
 import signal
@@ -904,7 +840,8 @@ import signal
 signal.signal(signal.SIGTERM,closebot)
 
 async def makesession() :
-    #Setup our aiohttp.ClientSession to pass to our modules that need it
+    '''Creates an aiohttp.ClientSession instance, shared among all modules.'''
+    #We create a timeout instance to allow a max of 60 seconds per call
     mytime = aiohttp.ClientTimeout(total=60)
     #Note that individual requests CAN still override this, but for most APIs it
     #shouldn't take that long.
@@ -912,29 +849,31 @@ async def makesession() :
     return myconn
 
 async def startbot() :
-    myconn = await makesession()
+    '''Handles starting the bot, making the session, and starting tasks.'''
+    myconn = await makesession() #The shared aiohttp clientsession
     #Saves our context data periodically
     tasks.append(client.loop.create_task(savetask()))
     #Start our context modules' updatewrapper task, if they had one when adding.
     for modname in taskmods :
         #print("Starting task for:",modname.__name__)
+        #This starts the modules updatewrapper and passes the connection to it.
         tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
     try :
+        #Starts the discord.py client with our discord token.
         await client.start(token)
     #On various kinds of errors, close our background tasks, the bot, and the loop
     except SystemExit :
-        print("SystemExit or KBInt, closing")
-        #task.cancel()
-        for task in tasks :
+        print("SystemExit, closing")
+        for task in tasks : #Mark all tasks as cancelled
             task.cancel()
+        #Logs out bot and ensures tasks were properly stopped before moving on.
         await aclosebot()
     except KeyboardInterrupt :
-        print("SystemExit or KBInt, closing")
-        #task.cancel()
-        for task in tasks :
+        print("KBInt, closing")
+        for task in tasks : #Mark all tasks as cancelled
             task.cancel()
+        #Logs out bot and ensures tasks were properly stopped before moving on.
         await aclosebot()
-        return
     await myconn.close()
 
 def startupwrapper() :
@@ -1042,6 +981,8 @@ def ignore_aiohttp_ssl_error(loop):
 
     loop.set_exception_handler(ignore_ssl_error)
 ignore_aiohttp_ssl_error(myloop)
+#END 3.7 to 3.7.3 only section
 
+#If the module was run, call our startup wrapper
 if __name__ == "__main__" :
     startupwrapper()
