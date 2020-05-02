@@ -6,7 +6,7 @@ Modules should be simple, easy to use, and not require excessive permissions. Th
 ### Prerequisites
 If you simply wish to add the current instance of dbcontext to your server, check the instructions on [the project wiki.](https://github.com/Silari/DBContext/wiki)
 
-If you wish to run your own instance, you must use Python 3.6 or 3.7, and have installed discord.py version 1.3.2. Typically, this can be done easily via pip. 
+If you wish to run your own instance, you must use Python 3.6 or 3.7, and have installed discord.py version 1.3.3. Typically, this can be done easily via pip. 
 
 Linux/OS X
 
