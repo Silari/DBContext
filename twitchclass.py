@@ -11,14 +11,15 @@ import asyncio #Use this for sleep, not time.sleep.
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
 import datetime #Stream durations, time online, etc.
+import basecontext #Base class for our API based context
 
 parsed = {} #Dict with key == 'user_name'
-lastupdate = [] #Did the last update succeed?
+lastupdate = basecontext.Updated() #Class that tracks if update succeeded - empty if not successful
 
 import apitoken
 twitchheader = apitoken.twitchheader
-if not twitchheader :
-    raise Exception("You must provide a valid twitch header with access token for use!")
+if (not twitchheader) or (not apitoken.clientid) or (not apitoken.clientsecret) :
+    raise Exception("You must provide a valid twitch header with access token, client ID, and client secret for use!")
 
 def connect() :
     global parsed
@@ -41,7 +42,6 @@ def getstream(streamname) :
     except :
         return False
 
-import basecontext
 class TwitchContext(basecontext.APIContext) :
     defaultname = "twitch" #This is used to name this context and is the command
     streamurl = "https://twitch.tv/{0}"#Fill this with a string, gets called as self.streamurl.format(await self.getrecname(rec)) generally
@@ -73,7 +73,6 @@ class TwitchContext(basecontext.APIContext) :
         #too many. Instead we only grab watched streams in groups.
         found = {} #Used to hold the records from API call
         updated = False #Tracks if this attempt succeeded.
-        self.lastupdate.clear() #Clear the stored value for if we succeeded.
         #If one or more calls succeded, we could have a partial update. To avoid
         #that, we gather the data into found first, then if we finish without
         #any errors, we copy that data over self.parsed. If an error occurs at
@@ -82,7 +81,7 @@ class TwitchContext(basecontext.APIContext) :
             #We split the streams we need to check into chunks, due to the API
             #limit of 100 streams per call.
             for checkgroup in self.splitgroup(self.mydata['AnnounceDict']) :
-                loaded = await self.acallapi(self.apiurl + "&user_login=".join(checkgroup),headers=twitchheader)
+                loaded = await self.acallapi(self.apiurl + "&user_login=".join(checkgroup))
                 #print(loaded)
                 if loaded : #We got a response back
                     found.update({item['user_name']:item for item in loaded['data']})
@@ -97,14 +96,42 @@ class TwitchContext(basecontext.APIContext) :
             updated = False #Errors mean bad things happened, so skip this update
         if updated : #Only replace parsed data if we succeeded
             self.parsed = found
-            #Completed successfully, update the tracking variable
-            self.lastupdate.append(updated) 
+        #Update the tracking variable
+        self.lastupdate.record(updated) 
         return updated
 
+    async def makeheader(self) :
+        '''Makes the needed headers for twitch API calls, which includes dealing
+        with the OAuth jank they now require.'''
+        if not 'OAuth' in self.mydata : #We haven't gotten our OAuth token yet
+            #request version, need to rewrite to use 
+            #request.Request(url='https://id.twitch.tv/oauth2/token?client_id=' + apitoken.clientid + '&client_secret=' + apitoken.clientsecret + "&grant_type=client_credentials",method='POST')
+            #URL to call to request our OAuth token
+            url = 'https://id.twitch.tv/oauth2/token?client_id=' + apitoken.clientid + '&client_secret=' + apitoken.clientsecret + "&grant_type=client_credentials"
+            try :
+                async with self.conn.post(url) as resp :
+                    if resp.status == 200 : #Success
+                        buff = await resp.text()
+                        #print("makeheader",buff)
+                        if buff :
+                            result = json.loads(buff)
+                            self.mydata['OAuth'] = result['access_token']
+            except Exception as e :
+                #Log this for now while debugging
+                print("makeheader",repr(e))
+        if not self.mydata['OAuth'] : #It still didn't work out
+            print("Didn't get an access token!")
+            return False #Return False so we don't attempt any calls.
+        else :
+            #Return the headers we need for Twitch to work
+            return {"Client-ID": apitoken.clientid,
+                    "Authorization": "Bearer " + self.mydata['OAuth']}
+        return False #Shouldn't get here, but something screwed up for sure
+    
     #Gets the detailed information about a stream. Used for makedetailmsg.
     #It returns a stream record.
     async def agetstreamoffline(self,streamname) :
-        detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + streamname,headers=twitchheader)
+        detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + streamname)
         if not detchan :
             return False
         if detchan['data'] :
@@ -112,9 +139,9 @@ class TwitchContext(basecontext.APIContext) :
         return False
 
     #Gets the detailed information about a stream
-    async def agetstream(self,streamname,headers=None) :
+    async def agetstream(self,streamname) :
         #Call the API with our channelurl, using the twitch header
-        detchan = await self.acallapi(self.channelurl.format(streamname),headers=twitchheader)
+        detchan = await self.acallapi(self.channelurl.format(streamname))
         if not detchan :
             return False
         #If we have a record in 'data' then the stream is online
@@ -122,6 +149,15 @@ class TwitchContext(basecontext.APIContext) :
             return detchan['data'][0]
         else : #Stream isn't online so grab the offline data.
             return await self.agetstreamoffline(streamname)
+
+    async def acallapi(self,url,headers=None) :
+        '''Overrides acallapi to ensure we send in the needed twitch headers.'''
+        #If the base call fails due to 401, it'll unset our OAuth token so we
+        #would then remake it on the next call of this.
+        if not headers : #We weren't provided with headers
+            #We need to make them
+            headers = await self.makeheader()
+        return await basecontext.APIContext.acallapi(self,url,headers=headers)
 
     #Gets the name of the game with gameid. Uses a caching system to prevent
     #unneeded lookups.
@@ -135,7 +171,7 @@ class TwitchContext(basecontext.APIContext) :
             #This started showing up recently, might have supplanted 0.
             return "No game set"
         try :
-            buff = await self.acallapi('https://api.twitch.tv/helix/games?id=' + gameid,headers=twitchheader)
+            buff = await self.acallapi('https://api.twitch.tv/helix/games?id=' + gameid)
             detchan = buff['data'][0]
             self.mydata['Games'][gameid] = detchan['name']
             return detchan['name']

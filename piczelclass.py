@@ -6,9 +6,10 @@ import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
 import datetime #Stream durations, time online, etc.
+import basecontext #Base class for our API based context
 
 parsed = {} #Dict with key == 'username'
-lastupdate = [] #Did the last update succeed?
+lastupdate = basecontext.Updated() #Class that tracks if update succeeded - empty if not successful
 
 apiurl = 'https://piczel.tv/api/streams/'
 offurl = 'https://piczel.tv/static'
@@ -41,7 +42,6 @@ def getstream(streamname) :
     except :
         return False
 
-import basecontext
 class PiczelContext(basecontext.APIContext) :
     defaultname = "piczel" #This is used to name this context and is the command to call it. Must be unique.
     streamurl = "http://piczel.tv/watch/{0}" #URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecname(rec)) generally

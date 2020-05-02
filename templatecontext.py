@@ -81,11 +81,23 @@ async def updatewrapper() :
         except Exception as error :
             print("Tempwrap:",repr(error))
     
-async def updatetask():
+async def updatetask() :
     #We want this check here in case we stopped in the last 60 seconds.
     if not client.is_closed():
         #The content of anything you need to do periodically would be here.
         pass
+
+async def savedata() :
+    #Used by dbcontext to get temporary data from the module prior to restart.
+    #If temp data is found on start, will be sent to loaddata shortly after the
+    #bot starts, but before the background task updatewrapper is started.
+    #Return MUST evaluate as True but otherwise can be anything that pickle
+    #can handle, and will be returned as is.
+    return False
+    
+async def loaddata(saveddata) :
+    #Used to load temporary data
+    return False
 
 #Main context handler - messages are passed to this function from dbcontext
 #command is the trimmed command - without the bot name or context name in front

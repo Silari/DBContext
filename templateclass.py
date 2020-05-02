@@ -10,11 +10,11 @@ import discord #The discord API module. Most useful for making Embeds
 import asyncio #Use this for sleep, not time.sleep.
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
 import datetime #Stream durations, time online, etc.
+import basecontext #Base class for our API based context
 
 parsed = {} #Dict with key == 'user_name', filled by basecontext.updateparsed
-lastupdate = [] #Did the last update succeed?
+lastupdate = basecontext.Updated() #Class that tracks if update succeeded - empty if not successful
 
-import basecontext
 class TemplateContext(basecontext.APIContext) :
     defaultname = "template" #This is used to name this context and is the command
     streamurl = #URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecname(rec))
@@ -30,6 +30,19 @@ class TemplateContext(basecontext.APIContext) :
         self.parsed = parsed #Removing any of this isn't recommended.
         self.lastupdate = lastupdate #Tracks if last API update was successful.
         #Adding stuff below here is fine, obviously.
+
+    async def savedata() :
+        #Used by dbcontext to get temporary data from the class prior to restart.
+        #If temp data is found on start, will be sent to loaddata shortly after the
+        #bot starts, but before the background task updatewrapper is started.
+        #Return MUST evaluate as True but otherwise can be anything that pickle
+        #can handle, and will be returned as is.
+        return False
+        
+    async def loaddata(saveddata) :
+        #Used to load temporary data that was retreived from savedata on the
+        #previous run. Return doesn't matter.
+        return True
 
     #Called to update the API data by basecontext's updatetask. When it's finished
     #parsed should have the current list of online channels.
