@@ -7,9 +7,10 @@ import asyncio #Use this for sleep, not time.sleep.
 import datetime #Stream durations, time online, etc.
 import urllib.request as request #Send HTTP requests - debug use only NOT IN BOT
 import time #Attaches to thumbnail URL to avoid discord's overly long caching
+import basecontext #Base class for our API based context
 
 parsed = {} #Dict with key == 'name'
-lastupdate = [] #Did the last update succeed?
+lastupdate = basecontext.Updated() #Class that tracks if update succeeded - empty if not successful
 
 #Old non-async method. Kept for debugging.
 def connect() :
@@ -31,7 +32,6 @@ def getstream(streamname) :
     except :
         return False
 
-import basecontext
 class PicartoContext(basecontext.APIContext) :
     defaultname = "picarto" #This is used to name this context and is the command to call it. Must be unique.
     streamurl = "https://picarto.tv/{0}" #URL for going to watch the stream
