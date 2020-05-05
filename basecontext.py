@@ -817,12 +817,18 @@ class APIContext :
                     #is going to be sent
                     msgtype = await self.getoption(server,"Type",recid)
                     notifyrole = await self.getoption(server,"Notify")
+                    #print("announce notify",repr(notifyrole))
                     notemsg = ""
-                    if notifyrole : #If server is using notifications, mention it
-                        try :
-                            await notifyrole.edit(mentionable=True)
-                        except Discord.Forbidden :
-                            pass
+                    revert = False
+                    #If server is using notifications, mention it
+                    if notifyrole :
+                        #If the role isn't mentionable, make it so to avoid a bug
+                        if not notifyrole.mentionable :
+                            try :
+                                await notifyrole.edit(mentionable=True)
+                                revert = True
+                            except Discord.Forbidden :
+                                pass
                         notemsg = notifyrole.mention + " "
                     #print("msgtype",msgtype)
                     if msgtype == "simple" : #simple type, no embed
@@ -834,7 +840,7 @@ class APIContext :
                     else :
                         #Default stream type, full embed with preview
                         sentmsg = await channel.send(notemsg + msg,embed=myembed)
-                    if notifyrole : #If server is using notifications, mention it
+                    if notifyrole and revert : #We need to revert the mentionable change
                         try :
                             await notifyrole.edit(mentionable=False)
                         except Discord.Forbidden :
@@ -970,7 +976,7 @@ class APIContext :
                 for newopt in command[1:] :
                     newopt = newopt.lower()
                     if newopt == 'clear' : #Clear all out options
-                        for group in ('Type','MSG','Adult') :
+                        for group in ('Type','MSG','Adult','Notify') :
                             await self.setoption(message.guild.id,group)
                         setopt.add(newopt)
                     elif newopt in ("default","noprev","simple") :

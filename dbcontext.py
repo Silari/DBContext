@@ -34,7 +34,27 @@
 ##add moved to own function for twitch to call offline version only, rest still
 ##need it.
 
+#notifyon notes
+#Make sure to check that the role position is still lower than the bots highest
+#JIC someone messes up the role order.
+#Also - see if I can set up the role so that only the bot can @ it!
+#Optionally include a channel mention to ensure role has permission to view? Seems unneccessary.
+#Though I'm putting this message where the notifyon is given, so hey
+#maybe it is useful.
+
+#There should be a way to use the after command to collate a bunch of the react
+#messages into one API call - pretty sure you can set a role on multiple users
+#at once with one command.
+
+#have manage commands accept username#0000 OR mentions. Should be easy with an
+#if startswith or if contains('#')
+
+#if I make the notify system use a custom emote, then ANY reaction which adds
+#that emote is good to go. Would mean adding it to all the announcements?
+
 #make notifyon make new message if it can't find the old
+#Related, if the notifyrole gets deleted it fails. I made it check for the role
+#first and recreate if needed but it still has the old role id stored in the dicts
 
 #setupchan set the override for the bot's managed role, not the user itself
 
@@ -99,6 +119,7 @@
 #instance of the class of that thing - guild (discord.Guild) vs guildid (discord.snowflake)
 #Should help to keep track of what's what in a function. Most functions definitions
 #should be holding to using id when it expects the id at least.
+##oneserv should be guildid or similar, or maybe use guildid in the for loop
 
 version = 1.0 #Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
@@ -106,37 +127,8 @@ changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 #as a discord message, so it'll just be kept on the wiki. Latest version will be
 #here solely as an organizational thing, until it's ready for upload to the wiki
 #proper.
-changelog = '''1.0 from 0.9 Changelog:
-Added regular and nickname mention check to on_command.
-options help no longer lists adult options on twitch - the API does not provide that info, and thus streams are always assume to be non-adult.
-Removed 'add' command, renamed 'addmult' to 'add', as there was no benefit to having separate commands.
-  add will announce up to one live stream when added.
-Changed 'listen' command to 'channel'
-Removed Client reference from modules. A limited version is instead passed.
-Added notifyon and notifyoff commands to manage, which manages a role that gets notified when streams come online.
-Added perms command to manage, checks if bot has the needed permissions to run.
-twitchclass and apitoken modified to use OAuth, as it's now required for that API.
-announcement editing always unsupresses embeds.
-basecontext + child classes track how many of the last updates have failed.
-If stream API is down, messages are edited (if enabled) after 5 mins with this info.
-  Logs are also made at this point to help debugging.
-  Once the stream is back up, normal message editing will resume.
-Added additional error logging to the message handler.
-Modules now have a mechanism for saving temporary data, used when restarting the bot via the quit command.
-add command moved to separate function outside handler, may move more as needed
-  add command now uses the agetchanneloffline function instead. Mostly this is an alias for the agetchannel, but for twitch uses a different API call that works whether or not the stream is online.
-FULL RELEASE WOO
-GENERAL
-Messages are now marked as offline immediately via editing the content.
-  After the normal delay, the message and embed will be edited same as previous versions.
-  If the stream comes back online before the timeout, the message will be edited to the normal online announcement.
-options help no longer lists adult options on twitch - the API does not provide that info, and thus streams are always assume to be non-adult.
-Bot now also listens to anyone possessing the Manage Server permission, which is the permission required to invite the bot to the server.
-Update task for stream modules reworked; less work is done on streams no one is watching.
-Additionally, update task now depends on real time since last update for streams, instead of counting # of API updates since last update.
-  This means messages should all update immediately after the API resumes after a long down time.
-Removed 'remove' command, renamed 'removemult' to 'remove', as there was no benefit to having separate commands.
-Removed 'add' command, renamed 'addmult' to 'add', as there was no benefit to having separate commands.
+changelog = '''1.1 Changelog:
+
 '''
 
 #Import module and setup our client and token.
@@ -349,23 +341,7 @@ async def handler(command, message, handlerdata) :
 async def helphandler(command, message) :
     if len(command) > 0 : #We were given additional paramters
         #Let's see if it's a command we understand.
-        if command[0] == "version" :
-            msg = client.user.name + " bot version " + str(version)
-            msg += ". Please use the 'help changelog' command for update details."
-            await message.channel.send(msg)
-            return
-        elif command[0] == "changelog" :
-            msg = "The complete changelog can be found at <" + changelogurl + ">, due to length."
-            msg += "Current version is: " + str(version)
-            await message.channel.send(msg)
-            return
-        elif command[0] == "help" :
-            msg = "PicartoWatch bot version " + str(version)
-            msg += "\nThe following commands are available for 'help':"
-            msg += "\nhelp, changelog, invite, version, versions"
-            await message.channel.send(msg)
-            return
-        elif command[0] == 'invite' :
+        if command[0] == 'invite' :
             msg = "I can be invited to join a server by an administrator of the server using the following links\n"
             msg += "\nNote that the link includes the permissions that I will be granted when joined.\n"
             msg += "\nThe current link is: <" + roleinvite + ">"
@@ -378,13 +354,15 @@ async def helphandler(command, message) :
             await contfuncs[command[0]](["help"] + command[1:],message)
             return
     msg = "PicartoWatch bot version " + str(version)
+    msg += "\nThe following commands are available for 'help': help, invite"
     msg += "\nOnline help, and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
     msg += "\nThe complete changelog can be found at <" + changelogurl + ">"
     msg += "\nPlease use '<module> help' for help with specific modules"
     msg += "\nThe following modules are available for use: " + ", ".join(contexts)
-    msg += "\nI listen to commands on any channel from users with the Administrator role on the server."
-    msg += "\nAdditionally, I will listen to commands from users with a role named " + str(client.user.name)
+    msg += "\nI listen to commands on any channel from users with the Manage Server permission."
+    msg += "\nAdditionally, I will listen to commands from users with a role named " + str(managerolename)
     await message.channel.send(msg)
+    return
 
 newcontext("help",helphandler,{})
 
@@ -446,7 +424,8 @@ async def makenotifyrole(guild) :
     userrole = None
     try :
         #The bot should have the ping any role perm, so the role doesn't need to be mentionable
-        userrole = await guild.create_role(reason="Role created for notification",name=notifyrolename)#,mentionable=True)
+        #Except that doesn't actually work for bots for some reason so it DOES need it for now.
+        userrole = await guild.create_role(reason="Role created for notification",name=notifyrolename,mentionable=True)
     except discord.Forbidden : #May not have permission
         pass #This should leave userrole as none
     return userrole #Return the role we made, or None if it failed
@@ -467,12 +446,7 @@ async def findmsg(guild,msgid,channel=None) :
                 pass #Message wasn't here, or can't access channel. Ignore
 
 async def managehandler(command, message) :
-    if len(command) == 0 or not (command[0] in ('help','check','add','remove',
-                                                'setupchan','notifyon',
-                                                'notifyoff','perms')) :
-        await message.channel.send("Please provide one of the following commands: help, check, add, remove, notifyon, notifyoff")
-        return
-    if command[0] == 'help' :
+    if len(command) == 0 or command[0] == 'help' :
         msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
         msg += "\nperms: Has the bot check for missing permissions, and replies with any that are missing and what they are needed for."
         msg += "\nnotifyon: Creates a message in the channel that users can react to to be granted a role that is @mentioned in announcements."
@@ -484,13 +458,12 @@ async def managehandler(command, message) :
         if not message.channel.permissions_for(message.guild.me).manage_roles :
             msg += "\n**Bot does not** have permission to manage user roles. Only help, check, notifyoff, and perms commands will work."
             msg += "\Please manually add the 'manage roles' permission to make use of additional features."
-        managerole = await getuserrole(message.guild)
-        if managerole :
-            if message.guild.me.top_role.position < managerole.position :
-                msg += "\n**Bot does not** have permission to add/remove " + managerole.name + " due to role position."
-                msg += "\nPlease ensure the " + managerole.name + " role is below the bots role."
-                msg += "\n" + managerole.name + " position: " + str(managerole.position) + ". Bots highest position: " + str(message.guild.me.top_role.position)
         await message.channel.send(msg)
+        return
+    if not (command[0] in ('help','check','add','remove',
+                                                'setupchan','notifyon',
+                                                'notifyoff','perms')) :
+        await message.channel.send("Please provide one of the following commands: help, check, add, remove, notifyon, notifyoff")
         return
     #We check what permissions are missing and inform the user why we need them
     if command[0] == 'perms' :
@@ -608,23 +581,6 @@ async def managehandler(command, message) :
         await message.channel.send("Bot does not have permission to manage user roles, requested command can not be completed without it.")
         return #We can't do any of the following things without it, so quit
     if command[0] == 'notifyon' :
-        notifyrole = await getnotifyrole(message.guild)
-        #Make sure to check that the role position is still lower than the bots highest
-        #JIC someone messes up the role order.
-        #Also - see if I can set up the role so that only the bot can @ it!
-        #Optionally include a channel mention to ensure role has permission to view? Seems unneccessary.
-        #Though I'm putting this message where the notifyon is given, so hey
-        #maybe it is useful.
-        #Step 0 - check if we already are on
-        if message.guild.id in mydata['notifyserver'] : #Is notify on?
-            msg = "Notifications have already been enabled on this server."
-            foundmsg = await findmsg(message.guild,mydata['notifyserver'][message.guild.id],message.channel)
-            if foundmsg :
-                msg += " Reaction message is at " + foundmsg.jump_url
-            else :
-                msg += " Unable to find the reaction message. You may need to toggle notify off and back on again to create a new one!"
-            await message.channel.send(msg)
-            return
         #Step 1 - Find/Create the role
         notifyrole = await getnotifyrole(message.guild)
         if not notifyrole : #We couldn't find the role, make it
@@ -632,12 +588,26 @@ async def managehandler(command, message) :
         if not notifyrole : #We couldn't find or make the role
             await message.channel.send("Unable to create/find the necessary role. Please ensure the bot has the manage_roles permission.")
             return
-        #Step 2 - Send message to channel with info, request it be pinned/try to pin it?
+        #Step 2 - Check if we already are on
+        if message.guild.id in mydata['notifyserver'] : #Is notify on?
+            msg = "Notifications have already been enabled on this server."
+            savedmsgid = mydata['notifyserver'][message.guild.id]
+            foundmsg = await findmsg(message.guild,savedmsgid,message.channel)
+            if foundmsg :
+                msg += " Reaction message is at " + foundmsg.jump_url
+            else :
+                msg += " Unable to find the reaction message. You may need to toggle notify off and back on again to create a new one!"
+            if notifyrole.id != mydata['notifymsg'][savedmsgid] :
+                mydata['notifymsg'][savedmsgid] = notifyrole.id
+                msg += " The stored notify role ID did not match the found role. It has been reset."
+            await message.channel.send(msg)
+            return
+        #Step 3 - Send message to channel with info, request it be pinned/try to pin it?
         sentmsg = await message.channel.send("Notifications are enabled for this server. To receive a notification when stream announcements are set, please react to this message with :sound:. To stop receiving notifications, unreact the :sound: reaction.\nIt is HIGHLY recommended this message be left pinned for users to find!")
-        #Step 3 - Add the server+msgid and msgid+roleid to the dicts.
+        #Step 4 - Add the server+msgid and msgid+roleid to the dicts.
         mydata['notifyserver'][message.guild.id] = sentmsg.id
         mydata['notifymsg'][sentmsg.id] = notifyrole.id
-        #Step 4 - Add the :sound: reaction to the message to make it easier to
+        #Step 5 - Add the :sound: reaction to the message to make it easier to
         #react to it for others. One click, no mistakes.
         try :
             await sentmsg.pin() #Try to pin the message
@@ -652,7 +622,7 @@ async def managehandler(command, message) :
         await message.channel.send("Unable to obtain/create the necessary role for an unknown reason.")
         return
     if managerole and (message.guild.me.top_role.position < managerole.position) :
-        msg = "Bot does not have permission to add/remove " + managerole.name + " due to role position."
+        msg = "Bot does not have permission to manage the " + managerole.name + " role due to the role's position."
         msg += "\nPlease ensure the " + managerole.name + " role is below the bots role."
         msg += "\n" + managerole.name + " position: " + str(managerole.position) + ". Bots highest position: " + str(message.guild.me.top_role.position)
         await message.channel.send(msg)
@@ -662,17 +632,20 @@ async def managehandler(command, message) :
             #We need to set this channel to be talkable by anyone with the role.
             for channel in message.channel_mentions :
                 msg = channel.name + ": "
+                #Set everyone role to be able to read but not send in the channel
                 try :
                     await channel.set_permissions(message.guild.default_role,read_messages=True,send_messages=False)
                     msg += "@everyone role set to read only permission for channel."
                 except discord.Forbidden :
                     msg += "Failed to set read only permission for @everyone role for channel."
                 newoverride = discord.PermissionOverwrite(**{"send_messages":True,"read_messages":True})
+                #Set the bot user to be able to read and send messages
                 try :
                     await channel.set_permissions(message.guild.me,overwrite=newoverride,reason="Added read/send permissions to bot")
                     msg += "\nRead+Write permissions given to bot for channel."
                 except discord.Forbidden :
                     msg += "\nFailed to give read+write permissions to bot for channel."
+                #Set the manage role to be able to read and send messages
                 try :
                     await channel.set_permissions(managerole,overwrite=newoverride,reason="Added read/send message permission to bot user role.")
                     msg += "\nRead+Send permissions given to role for channel " + channel.name
@@ -827,16 +800,26 @@ async def sendall(msg) :
     for thiscon in msgcontexts :
         mydata = contexts[thiscon]['Data']
         for server in mydata['Servers'] :
+            #Find their set announcement channel and add it to the list
             try :
                 msgset.add(mydata['Servers'][server]["AnnounceChannel"])
+                continue #Move to the next server, we got one
             except KeyError :
                 pass #Server has no announcement channel set
+            #Find a channel to use via stream overrides
+            if server in mydata['COver'] :
+                for stream in mydata['COver'][server] :
+                    try :
+                        msgset.add(mydata['COver'][server][stream]['Channel'])
+                        continue
+                    except KeyError :
+                        pass
     #print("sendall:",msgset)
     for servchan in msgset :
         try:
             channel = client.get_channel(servchan)
-            await asyncio.sleep(1) #Sleep to avoid hitting rate limit
             if channel : #We may no longer be in the server which would mean no channel
+                await asyncio.sleep(1) #Sleep to avoid hitting rate limit
                 await channel.send(msg)
         except :
             pass
