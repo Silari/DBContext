@@ -1067,7 +1067,8 @@ class APIContext:
                         setopt.add(newopt)
                     # This is a channel mention, set the channel override
                     elif newopt.startswith('<#') and newopt.endswith('>'):
-                        # TODO Make this check that it's a valid channel BEFORE setting. Might do it in setstreamoption
+                        # Technically this might not be a valid channel if someone just types it up manually, though an
+                        # actual channel mention will always be a real channel, even if the bot can't necessarily see it
                         await self.setstreamoption(message.guild.id, 'Channel', rec, int(newopt[2:-1]))
                         setopt.add(newopt)
                     elif newopt in ("default", "noprev", "simple"):

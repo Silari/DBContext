@@ -4,38 +4,13 @@
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
 
-# REALLY SUPER DUPER IMPORTANT
-
 # TESTING NOTES
 
 # Todo:
-# Start breaking some of the handler into separate functions?
-#  add moved to own function for twitch to call offline version only, rest still
-#  need it.
-
 # notifyon notes
-# Make sure to check that the role position is still lower than the bots highest
-# JIC someone messes up the role order.
-# Also - see if I can set up the role so that only the bot can @ it!
 # Optionally include a channel mention to ensure role has permission to view? Seems unneccessary.
 # Though I'm putting this message where the notifyon is given, so hey
 # maybe it is useful.
-
-# There should be a way to use the after command to collate a bunch of the react
-# messages into one API call - pretty sure you can set a role on multiple users
-# at once with one command.
-
-# have manage commands accept username#0000 OR mentions. Should be easy with an
-# if startswith or if contains('#')
-
-# if I make the notify system use a custom emote, then ANY reaction which adds
-# that emote is good to go. Would mean adding it to all the announcements?
-
-# make notifyon make new message if it can't find the old
-# Related, if the notifyrole gets deleted it fails. I made it check for the role
-# first and recreate if needed but it still has the old role id stored in the dicts
-
-# setupchan set the override for the bot's managed role, not the user itself
 
 # Need some way to say that an API doesn't support an option, like twitch for adult
 # Thought about getoption=None but that's the fallback if it doesn't exist.
@@ -47,15 +22,6 @@
 # HIGHLY RELATED
 # Maybe give contexts a 'commands' list so that it's easier to see what are valid?
 # help could use this to see what contexts have a particular command.
-
-# Add a module named Global/Options for handling global settings - pretty simple data layout
-# ServerID->['Channel'],['MSG'],['Type'], etc.
-# Need to add a way for modules to READ but not WRITE this - getglobal(globalname)?
-# Reading done, but still need a way to set this.
-
-# Still need to think about a module to set things globally - the backend is there
-# already with getoption+getglobal but there's no way to set them. It just uses
-# the default option dict.
 
 # SIMILAR TO ABOVE: maybe a dict with the allowed option TYPES? Then again that
 # could be gotten from the defaultopts list maybe? Except that's global! so mods
@@ -82,21 +48,6 @@
 #              break
 #   Easier to just have announce <stream> announce a stream regardless if it was
 #   already?
-
-# Account for options changing after initial announcement. I've caught a few of
-# these but especially removemsg assumes that an embed is already present: if the
-# type was changed from simple to the others and then goes offline it doesn't get
-# an embed. There's already an if embeds>0 check, have else newembed = (make new embed)
-# and to_dict() it, then move the if 'image' and past it out of the if, as there'd
-# always be a newembed dict at that point.
-
-
-# In the code cleanup bin - try to stick to adding on 'id' to the end of vars
-# to signify that those are the integer IDs of the thing, rather than say an
-# instance of the class of that thing - guild (discord.Guild) vs guildid (discord.snowflake)
-# Should help to keep track of what's what in a function. Most functions definitions
-# should be holding to using id when it expects the id at least.
-#  oneserv should be guildid or similar, or maybe use guildid in the for loop
 
 # Import module and setup our client and token.
 import discord
@@ -396,14 +347,29 @@ async def hasrole(member, rolename):
     for item in member.roles:
         # print(hasrole, item.name, client.user.name)
         if rolename == item.name:
-            return True
             # print(hasrole, item.name, client.user.name)
+            return True
     return False
 
 
 async def hasmanagerole(member):
     # Second half of this is a shim for 1.0 to allow the old role name to work.
     return await hasrole(member, managerolename) or await hasrole(member, client.user.name)
+
+
+async def renamerole(guild):
+    oldrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
+    if not oldrole:
+        return "Old role was not found, can not rename."
+    if await getuserrole(guild):
+        return "Renaming failed, " + managerolename + " already exists."
+    try:
+        await oldrole.edit(reason="Adjust role to new name", name=managerolename)
+        return "Role edited successfully."
+    except discord.Forbidden:
+        return "Bot does not have permission to rename role!"
+    except discord.HTTPException:
+        return "Renaming failed due to unknown reason."
 
 
 async def getnotifyrole(guild):
@@ -464,11 +430,10 @@ async def managehandler(command, message):
             msg += "\nPlease manually add the 'manage roles' permission to make use of additional features."
         await message.channel.send(msg)
         return
-    if not (command[0] in ('help', 'check', 'add', 'remove',
-                           'setupchan', 'notifyon',
-                           'notifyoff', 'perms')):
-        await message.channel.send(
-            "Please provide one of the following commands: help, check, add, remove, notifyon, notifyoff")
+    validcommands = ('help', 'check', 'add', 'remove', 'setupchan', 'notifyon', 'notifyoff', 'perms')
+    if not command[0] in validcommands:
+        await message.channel.send("Please provide one of the following commands: " +
+                                   ",".join(validcommands))
         return
     # We check what permissions are missing and inform the user why we need them
     if command[0] == 'perms':
@@ -817,6 +782,17 @@ async def debughandler(command, message):
                 module.mydata['SavedMSG'].clear()
             except KeyError:
                 pass
+    elif command[0] == 'rename':
+        for guild in client.guilds:
+            msg = await renamerole(guild)
+            print(msg)  # await message.channel.send(msg)
+        return
+    elif command[0] == 'checkroles':
+        for guild in client.guilds:
+            foundrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
+            if foundrole:
+                print(guild.name, foundrole.name)  # await message.channel.send(msg)
+        return
 
 
 newcontext("debug", debughandler, {})
