@@ -734,14 +734,12 @@ async def debughandler(command, message):
         msg = "The bot has been restarted and updated to version " + str(version)
         msg += ". Please use 'help changelog' to see a list of the additions/changes/fixes to this version."
         await sendall(msg)
-    elif command[0] == 'quit':
+    elif command[0] in ('quit', 'restart'):
         global calledstop
-        calledstop = True
-        await message.channel.send("Client exiting. Goodbye.")
-        await client.logout()
-    elif command[0] == 'restart':
-        # global calledstop
-        # calledstop = True #Since we don't do this, systemctl will restart it
+        if command[0] == 'quit':
+            calledstop = True
+        else:
+            calledstop = 'restart'  # Still counts as True for testing
         await message.channel.send("Client exiting. Goodbye.")
         await client.logout()
     elif command[0] == 'checkupdate':
@@ -792,6 +790,8 @@ async def debughandler(command, message):
             foundrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
             if foundrole:
                 print(guild.name, foundrole.name)  # await message.channel.send(msg)
+            else:
+                print(guild.name, "No role")
         return
 
 
@@ -1281,8 +1281,10 @@ def startupwrapper():
     else:
         # If so, print a message for logging purposes
         print("Called quit")
-        # for each module, save the resume data. I need to design what this is
+        # for each module, save the resume data.
         savetemps()
+        if calledstop == 'restart':
+            raise Exception("Restart requested.")
 
 
 # This section is needed for Python 3.7 to 3.7.3 only.
