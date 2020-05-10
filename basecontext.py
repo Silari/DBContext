@@ -22,6 +22,8 @@ import datetime  # For stream duration calculation
 
 
 class Updated:
+    """Represents if the last API update succeeded, and counts contiguous failures."""
+
     def __init__(self):
         self.failed = 0
 
@@ -44,10 +46,18 @@ offlinetime = 600  # How many seconds to wait before declaring a stream offline
 
 
 class ChannelNotSet(discord.DiscordException):
+    """Exception to use when a server does not have an announcement channel set, but it is explicitly required."""
     pass
 
 
 class APIContext:
+    """Class that acts as a context for a dbcontext bot, that interacts with an API to track streams that come online
+    and provide announcements to servers that have requested it. Attempts to keep functions general such that they can
+    work for multiple APIs, and easy overrides for those changes which need to be made.
+
+    :type instname: str
+    :param instname: A string representing the name the context will be used as. Must be unique among all contexts.
+    """
     defaultname = "template"  # This must be a unique name, used to identify this context
 
     client = None  # Is filled by discordbot with a handle to the client instance
@@ -72,14 +82,17 @@ class APIContext:
 
     @property
     def apiurl(self):
-        raise NotImplementedError("apiurl must be overridden in the subclass")
-
-    @property
-    def streamurl(self):
+        """URL to call to find online streams"""
         raise NotImplementedError("apiurl must be overridden in the subclass")
 
     @property
     def channelurl(self):
+        """URL to call to get information on a single stream"""
+        raise NotImplementedError("apiurl must be overridden in the subclass")
+
+    @property
+    def streamurl(self):
+        """URL for going to watch the stream"""
         raise NotImplementedError("apiurl must be overridden in the subclass")
 
     def __init__(self, instname=None):
@@ -149,17 +162,16 @@ class APIContext:
         # savers are always nice.
 
     def savedata(self):
-        # Used by dbcontext to get temporary data from the class prior to restart.
-        # If temp data is found on start, will be sent to loaddata shortly after the
-        # bot starts, but before the background task updatewrapper is started.
-        # Return MUST evaluate as True but otherwise can be anything that pickle
-        # can handle, and will be returned as is.
-        # We return a partial dict from parsed, limited only to streams that are
-        # being watched.
-        # For twitch, this will be ALL of parsed, since it only REQUESTS streams
-        # that are being watched.
-        # May be empty if no watched streams are online, and that's fine. It'll
-        # evaluate as False and not be saved.
+        """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it
+        will be sent to loaddata shortly after the bot starts, but before the background task updatewrapper is started.
+        Return MUST evaluate as True but otherwise can be anything that pickle can handle, and will be returned as is.
+        We return a partial dict from parsed, limited only to streams that are being watched. For twitch, this will be
+        ALL of parsed, since it only REQUESTS streams that are being watched. May be empty if no watched streams are
+        online, and that's fine. It'll evaluate as False and not be saved. Also includes a timestamp when the data was
+        saved, checked when it's loaded.
+
+        :return: Returns a tuple with the timestamp and the data to be pickled.
+        """
         data = {k: v for k, v in self.parsed.items() if k in self.mydata['AnnounceDict']}
         # print("savedata",data)
         if data:
@@ -168,10 +180,14 @@ class APIContext:
         return False
 
     def loaddata(self, saveddata):
-        # Used to load temporary data
-        # saveddata[0] is the timestamp of when it was saved.
-        # saveddata[1] is a partial parsed - it contains only the streams that
-        # at least one server is watching.
+        """Loads data previously saved by savedata and reintegrates it into self.parsed. Includes a check that the data
+        is less than an hour old, and discards it if it is.
+
+        :rtype: bool
+        :type saveddata: tuple[datetime.datetime,dict]
+        :param saveddata: A tuple with the time the data was saved, and a dict of streams that were online to be set as
+        the parsed data.
+        """
         curtime = datetime.datetime.now(datetime.timezone.utc)
         # If the saveddata is less than an hour old, we use it
         if (curtime - saveddata[0]) < datetime.timedelta(hours=1):
@@ -182,40 +198,77 @@ class APIContext:
         return False
 
     async def getrecname(self, rec):
-        # Display name of the record, used to ID the stream and in messages.
-        # Should be overridden.
+        """Gets the name of the record used to uniquely id the stream. Generally, rec['name'] or possibly rec['id'].
+        Used to store info about the stream, such as who is watching and track announcement messages. MUST be overriden!
+
+        :rtype: str
+        :param rec: A full stream record as returned by the API.
+        :return: A string with the record's unique name.
+        """
         raise NotImplementedError("getrecname must be overridden in subclass!")
 
     # Is the stream set as adult? Returns True/False
     async def isadult(self, rec):
-        """Whether the API sets the stream as Adult. Defaults to False."""
+        """Whether the API sets the stream as Adult. Should be overridden by subclasses.
+
+        :rtype: bool
+        :param rec: A full stream record as returned by the API
+        :return: Boolean representing if the API has marked the stream as Adult.
+        """
         return False
 
     async def getrectime(self, rec):
-        """Time that a stream has ran, determined from the API data. Defaults to 0s"""
+        """Time that a stream has ran, determined from the API data. Defaults to 0 seconds.
+
+        :rtype: datetime.timedelta
+        :param rec: A full stream record as returned by the API
+        :return: A timedelta representing how long the stream has run.
+        """
         return datetime.timedelta()
 
     # Get saved message id
     async def getmsgid(self, guildid, recid):
+        """Gets the snowflake for the message we used to announce the stream in the guild.
+
+        :rtype: int | None
+        :type guildid: int
+        :type recid: str
+        :param guildid: Snowflake for the guild to find the announcement for.
+        :param recid: Name of the stream to find the announcement for.
+        :return: The snowflake for the announcement message.
+        """
         try:
             return self.mydata['SavedMSG'][guildid][recid]
         except KeyError:  # Guild has no saved messages, or none for that record
-            return False
+            return None
 
-    # Set saved message id
     async def setmsgid(self, guildid, recid, messageid):
+        """Sets the snowflake for the message we used to announce the stream in the guild.
+
+        :type messageid: int
+        :type guildid: int
+        :type recid: str
+        :param guildid: Snowflake for the guild to set the announcement for.
+        :param recid: Name of the stream to set the announcement for.
+        :param messageid: The snowflake for the announcement message.
+        """
         if guildid not in self.mydata['SavedMSG']:
             self.mydata['SavedMSG'][guildid] = {}
         self.mydata['SavedMSG'][guildid][recid] = messageid
 
-    # Get the channel to announce.
     async def resolvechannel(self, guildid, recname=None, channelid=None):
-        """guildid = int: snowflake of guild
-        recname = str: stream name
-        channelid = int: snowflake of channel - overrides any other option.
-        Return: TextChannel instance if found.
-        If we no longer have access to the channel, get_channel returns None.
-        Calling functions should all account for this possibility."""
+        """Get the channel associated with this guild and recname, or get the TextChannel instance for the given
+         channelid.
+
+        :rtype: discord.TextChannel | None
+        :type guildid: int
+        :type recname: str
+        :type channelid: int
+        :param guildid: snowflake of guild
+        :param recname: String with the record name
+        :param channelid: snowflake of channel - overrides any other option.
+        :return: TextChannel instance or None if not found.
+        """
         # If we're supplied with the channelid, use it to grab our TextChannel.
         if channelid:  # Used for channel override things currently.
             return self.client.get_channel(channelid)
@@ -240,8 +293,18 @@ class APIContext:
     # Gets the given option by searching stream overrides, guild override,
     # guild setting, or global settings (which checks for default settings)
     async def getoption(self, guildid, option, recname=None):
-        # option = str: name of option to get ("Type", "Adult", or "MSG" right now)
-        # recname = str: stream name, for setting a stream override
+        """Gets the value for the option given, checking in order for on set on the stream, the module, or globally.
+
+        :type guildid: int
+        :type option: str
+        :type recname: str
+        :rtype: None | str | bool | discord.Role
+        :param guildid: Integer representing the snowflake of the Guild we're retrieving this option for.
+        :param option:  String with the name of the option to retrieve.
+        :param recname: String with the name of the record to check for a stream override for the option.
+        :return: None if no option with that name, or the value of option-dependant type that represents its current
+        setting
+        """
         mydata = self.mydata
         if recname:
             try:  # Try and read the streams override option
@@ -262,9 +325,15 @@ class APIContext:
         return glob
 
     async def setoption(self, guildid, optname, setting=None):
-        # guildid = int: the discord ID for the server
-        # optname = str: the name of the option group
-        # setting = str: option to set, or None to clear
+        """Sets or clears an option for the server.
+
+        :type guildid: int
+        :type optname: str
+        :type setting: object
+        :param guildid: The discord snowflake for the server this setting is for.
+        :param optname: The name of the option group we're setting.
+        :param setting: The value to set the option to, or None to clear. Type is dependant on the setting group.
+        """
         mydata = self.mydata
         # If we have no setting, try and delete it.
         if setting is None:
@@ -285,10 +354,17 @@ class APIContext:
 
     # Sets the override option for the given stream
     async def setstreamoption(self, guildid, optname, recname, setting=None):
-        """ guildid = int: the discord id for the server
-         optname = str: the name of the option group
-         recname = str: the name of the stream to set the option on
-         setting = str/int/bool: the value of the option to set"""
+        """Sets or clears an option for the given stream for the given server.
+
+        :type guildid: int
+        :type optname: str
+        :type recname: str
+        :type setting: str | int | bool | None
+        :param guildid: The discord snowflake for the server this setting is for.
+        :param optname: The name of the option group we're setting.
+        :param recname: The name of the stream this setting is for.
+        :param setting: The value to set the option to, or None to clear. Type is dependant on the setting group.
+        """
         mydata = self.mydata
         # We have no setting, try and delete it.
         if setting is None:
@@ -313,6 +389,18 @@ class APIContext:
     # Function to get length of time a stream was running for, based on a message
     # snowflake.
     async def streamtime(self, dur, offset=None, longtime=False):
+        """Function to generate a string to say how long stream has lasted.
+
+        :type dur: datetime.timedelta
+        :type offset: int
+        :type longtime: bool
+        :rtype: str
+        :param dur: timedelta representing the length of time.
+        :param offset: Number of minutes to subtract from the duration, if supplied. Adjusts for the lapse between the
+        time the stream goes offline, and when we generate this message.
+        :param longtime: Do we want to use the long form of 'X hours, Y minutes', or the short form of 'Xh:YYm'
+        :return: a string with the time the stream has ran for, in a long or short format.
+        """
         if offset:
             dur -= datetime.timedelta(minutes=offset)
         hours, remainder = divmod(dur.total_seconds(), 3600)
@@ -337,7 +425,15 @@ class APIContext:
     async def longertime(self, snowflake, rec):
         """Finds the longer of two durations - the time since the snowflake,
         and the time since the stream came online, from getrectime.
-        Returns a datetime.timedelta object."""
+        Returns a datetime.timedelta object.
+
+        :type snowflake: int
+        :type rec: dict
+        :rtype: datetime.timedelta
+        :param snowflake: Integer representing a discord Snowflake
+        :param rec: A full stream record as returned by the API
+        :return: The longer duration between when the snowflake was created and the time contained in the record.
+        """
         rectime = await self.getrectime(rec)
         if snowflake:
             dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
@@ -345,8 +441,17 @@ class APIContext:
             dur = datetime.timedelta()
         return max(rectime, dur)
 
-    # Function to generate a string to say how long stream has lasted
     async def streammsg(self, snowflake, rec, offline=False):
+        """Function to generate a string to say how long stream has lasted.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: str
+        :param snowflake: Integer representing a discord Snowflake
+        :param rec: A full stream record as returned by the API
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a string stating the time the stream has ran for.
+        """
         # Find the duration of the stream.
         dur = await self.longertime(snowflake, rec)
         # If stream is offline, we adjust the time to account for the waiting
@@ -363,39 +468,81 @@ class APIContext:
 
     # Embed creation stub. Should be overridden, but is functional.
     async def simpembed(self, rec, snowflake=None, offline=False):
+        """The embed used by the noprev message type. This is general information about the stream, but not everything.
+        Users can get a more detailed version using the detail command, but we want something simple for announcements.
+        Subclasses should override this to add their API's available information.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param snowflake: Integer representing a discord Snowflake
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
         myembed = discord.Embed(title="Stream has come online!", url=self.streamurl.format(await self.getrecname(rec)))
         return myembed
 
     # Embed creation stub. Should be overridden, but is functional.
     # Returns the simple embed.
     async def makeembed(self, rec, snowflake=None, offline=False):
+        """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
+        Subclasses should override to add the image preview.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param snowflake: Integer representing a discord Snowflake
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
+        # TODO Rewrite this and add a function to get the image from the rec, like getrecname. Then I could remove it
+        #  from subclasses. Or just wait for the rewrite to use a class for records.
         return await self.simpembed(rec, offline)
 
     # Embed creation stub. Should be overridden, but is functional.
     # Returns the normal embed, which may be fine if detailed stream record has
     # no additional information.
     async def makedetailembed(self, rec, showprev=True):
+        """This generates the embed to send when detailed info about a stream is requested. More information is provided
+        than with the other embeds. Subclasses should override this to add their API's available information.
+
+        :type showprev: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param showprev: Should the embed include the preview image?
+        :return: a discord.Embed representing the current stream.
+        """
         if showprev:
             return await self.makeembed(rec)
         else:
             return await self.simpembed(rec)
 
-    # Short string to announce the stream is online, with stream URL.
     async def makemsg(self, rec):
+        """Short string to announce the stream is online, with stream URL.
+
+        :rtype: str
+        :type rec: dict
+        :param rec: A full stream record as returned by the API
+        :return: String with a short message and the link to watch the stream.
+        """
         # Note we purposely stop the embed for the link - if we want an embed
         # we'll generate one ourself which is more useful than the default ones.
         return await self.getrecname(rec) + " has come online! Watch them at <" + self.streamurl.format(
             await self.getrecname(rec)) + ">"
 
-    # Gets the detailed information about a stream. Used for makedetailmsg.
-    # It returns the interpreted buffer. For Picarto, this is the stream record.
-    # This is pretty basic, so most classes should be able to use this. If needed,
-    # you can override the function, then in your overriding function call
-    # basecontext.APIContext.agetstream(self,streamname), then
-    # manipulate the returned buffer as you need. See piczelclass as an example
-    # of this. Alternatively, see Twitch for a full overriden one.
     async def agetstream(self, streamname, headers=None):
-        # Call our API with the getchannel URL formatted with the channel name
+        """Call our API with the getchannel URL formatted with the channel name. This is typically more detailed than
+        the stream info provided by the online checks. Generalized to hopefully not need overriding by subclasses.
+
+        :type streamname: str
+        :type headers: dict
+        :rtype: dict
+        :param streamname: String with the name of the stream, used to format the URL.
+        :param headers: Headers to be passed on to the API call.
+        :return: A dict with the information for the stream, exact content depends on the API.
+        """
         return await self.acallapi(self.channelurl.format(streamname), headers)
 
     agetstreamoffline = agetstream
@@ -408,7 +555,13 @@ class APIContext:
         the result via the JSON library.
         Returns the interpreted JSON on success, None if the attempt timed out,
         and False if any other error occurs.
-        :rtype: Union[bool, int, str]
+
+        :type url: str
+        :type headers: dict
+        :rtype: dict | bool | int
+        :param url: URL to call
+        :param headers: Headers to send with the request
+        :return: The interpreted JSON result of the call, or 0 or False.
         """
         # header is currently only needed by twitch, where it contains the API
         # key. For other callers, it is None.
@@ -458,8 +611,13 @@ class APIContext:
             rec = False  # This shouldn't happen since status == 200
         return rec
 
-    # Updates parsed dict by calling the API. Generalized enough that it works for Picarto+Piczel
     async def updateparsed(self):
+        """Calls the API and updates our parsed variable with the dict of currently online streams. Generalized so it
+        should work for many APIs. Picarto and Piczel use this as-is.
+
+        :rtype: bool
+        :return: True on success, False if any error occurs.
+        """
         updated = False
         buff = await self.acallapi(self.apiurl)
         if buff:  # Any errors would return False (or None) instead of a buffer
@@ -475,8 +633,13 @@ class APIContext:
     # This is started as a background task by dbcontext. It can be empty but
     # should exist.
     async def updatewrapper(self, conn):
-        """Sets a function to be run continuously every 60 seconds until the bot
-        is closed."""
+        """Sets a function to be run continuously every 60 seconds until the bot is closed. Handles errors that
+        propagate outside of the called function to ensure the task doesn't stop prematurely.
+
+        :type conn: aiohttp.ClientSession
+        :param conn: ClientSession instance to be used for any HTTP calls, shared by all contexts.
+        :return:
+        """
         # Data validation should go here if needed for your mydata dict. This is
         # CURRENTLY only called once, when the bot is first started, but this may
         # change in future versions if the client needs to be redone.
@@ -505,8 +668,8 @@ class APIContext:
         # print("savedstreams",savedstreams)
         # Note that if the initial update fails, due to the API being down most
         # likely, this WILL remove all stream messages. Waiting until the API
-        # updates successfully might be the best option, but that'd require to
-        # much reworking of the update task. This way they'll get announced when
+        # updates successfully might be the best option, but that'd require too
+        # much reworking of the update task, and this way they'll get announced when
         # the API comes back.
         for stream in savedstreams:
             # Step 2: Check if the stream is offline: not in self.parsed.
@@ -615,8 +778,15 @@ class APIContext:
                         rec['DBCOnline'] = curtime
 
     async def removemsg(self, rec, serverlist=None, recid=None):
-        """Removes or edits the announcement message(s) for streams that have
-        gone offline."""
+        """Removes or edits the announcement message(s) for streams that have gone offline.
+
+        :type rec: dict | None
+        :type serverlist: list[int]
+        :type recid: str
+        :param rec: A full stream record as returned by the API. Can be none if recid is provided.
+        :param serverlist: Snowflake for the server in which to give this announcement.
+        :param recid: String with the name of the stream, used if the full record is unavailable.
+        """
         # Sending None for rec is supported, in order to allow edit/removal of
         # offline streams - ie after the bot was offline. recid MUST be given in
         # that case.
@@ -709,7 +879,13 @@ class APIContext:
                 pass
 
     async def updatemsg(self, rec, apidown=False):
-        """Updates an announcement with the current stream info, including run time."""
+        """Updates an announcement with the current stream info, including run time.
+
+        :type rec: dict
+        :type apidown: bool
+        :param rec: A full stream record as returned by the API
+        :param apidown: Boolean which says if the API is currently down - message is adjusted if it is.
+        """
         recid = await self.getrecname(rec)  # Keep record name cached
         mydata = self.mydata  # Ease of use and speed reasons
         # Compile dict of all stored announcement messages for this stream.
@@ -719,7 +895,7 @@ class APIContext:
             # print("updatemsg",allsaved,"@@@",oldest)
             # We use that lowest value to help calculate how long the stream has
             # been running for. Ideally we'd always get that info from the API,
-            # but it's not always available (like in picarto's), so we may need
+            # but it's not always available (like in picarto), so we may need
             # to use the time the message was created instead.
             myembed = await self.makeembed(rec, oldestid)
             noprev = await self.simpembed(rec, oldestid)
@@ -804,7 +980,13 @@ class APIContext:
     # Announce a stream is online. oneserv only sends the message on the given
     # server, otherwise find all servers that should announce that name.
     async def announce(self, rec, oneserv=None):
-        """Announce a stream. Limit announcement to 'oneserv' if given."""
+        """Announce a stream. Limit announcement to 'oneserv' if given.
+
+        :type rec: dict
+        :type oneserv: int
+        :param rec: A full stream record as returned by the API
+        :param oneserv: Snowflake for the server in which to give this announcement.
+        """
         mydata = self.mydata  # Ease of use and speed reasons
         # Make the embeds and the message for our announcement - done once no
         # matter how many servers we need to send it too. Note we should always
@@ -839,7 +1021,7 @@ class APIContext:
                     # At this point we've passed enough tests that the message
                     # is going to be sent
                     msgtype = await self.getoption(server, "Type", recid)
-                    notifyrole = await self.getoption(server, "Notify")
+                    notifyrole: discord.Role = await self.getoption(server, "Notify")
                     # print("announce notify",repr(notifyrole))
                     notemsg = ""
                     revert = False
@@ -881,8 +1063,14 @@ class APIContext:
             if sentmsg:
                 await self.setmsgid(server, recid, sentmsg.id)
 
-    # Provides a more detailed announcement of a stream for the detail command
     async def detailannounce(self, recid, oneserv=None):
+        """Provides a more detailed announcement of a stream for the detail command
+
+        :type recid: str
+        :type oneserv: int
+        :param recid: A stream name to create a detailed announcement for.
+        :param oneserv: Snowflake for the server in which to give this announcement.
+        """
         # We should only call this with a specific server to respond to
         if not oneserv:
             return
@@ -890,7 +1078,7 @@ class APIContext:
         channel = await self.resolvechannel(oneserv, recid)
         if not channel:
             raise ChannelNotSet()
-        # rec is only none if the timeout was reached. Other errors return False
+        # rec is only none if the timeout was reached.
         if rec is None:
             msg = "Timeout reached attempting API call; it is not responding. Please try again later."
             if not self.lastupdate:  # Note if the API update failed
@@ -925,10 +1113,15 @@ class APIContext:
             # If the server isn't showadult, AND this is an adult stream
             await channel.send(embed=myembed)
 
-    # Main context handler - messages are passed to this function from dbcontext
-    # command is the trimmed command - without the bot name or context name in front
-    # message is the full discord.Message instance that triggered the handler.
     async def handler(self, command, message):
+        """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as
+        needed.
+
+        :type command: list
+        :type message: discord.Message
+        :param command: List of strings which represent the contents of the message, split by the spaces.
+        :param message: discord.Message instance of the message which invoked this handler.
+        """
         # print("TemplateHandler:", command, message)
         # This has help show if no specific command was given, or the help command
         # was specifically given. Useful to tell users how to work your context.
@@ -1311,6 +1504,7 @@ class APIContext:
             return
 
     async def add(self, command, message):
+        """Adds streams to the list of watched streams for a guild."""
         mydata = self.mydata
         if not (message.guild.id in mydata["Servers"]):
             # Haven't created servers info dict yet, make a dict.

@@ -51,17 +51,31 @@ class PicartoContext(basecontext.APIContext):
         # Adding stuff below here is fine, obviously.
 
     async def getrecname(self, rec):
-        # Should return the name of the record used to uniquely id the stream.
-        # Generally, rec['name'] or possibly rec['id']. Used to store info about
-        # the stream, such as who is watching and track announcement messages.
+        """Gets the name of the record used to uniquely id the stream. Generally, rec['name'] or possibly rec['id'].
+        Used to store info about the stream, such as who is watching and track announcement messages.
+
+        :rtype: str
+        :param rec: A full stream record as returned by the API.
+        :return: A string with the record's unique name.
+        """
         return rec['name']
 
     async def isadult(self, rec):
-        """Whether the API sets the stream as Adult. """
+        """Whether the API sets the stream as Adult.
+
+        :rtype: bool
+        :param rec: A full stream record as returned by the API
+        :return: Boolean representing if the API has marked the stream as Adult.
+        """
         return rec['adult']
 
     async def getrectime(self, rec):
-        """Time that a stream has ran, determined from the API data."""
+        """Time that a stream has ran, determined from the API data.
+
+        :rtype: datetime.timedelta
+        :param rec: A full stream record as returned by the API
+        :return: A timedelta representing how long the stream has run.
+        """
         try:
             # Time the stream began
             # print("getrectime",rec)
@@ -72,12 +86,33 @@ class PicartoContext(basecontext.APIContext):
         return datetime.datetime.now(datetime.timezone.utc) - began
 
     async def makeembed(self, rec, snowflake=None, offline=False):
+        """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param snowflake: Integer representing a discord Snowflake
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
         # Simple embed is the same, we just need to add a preview image.
         myembed = await self.simpembed(rec, snowflake, offline)
         myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
         return myembed
 
     async def simpembed(self, rec, snowflake=None, offline=False):
+        """The embed used by the noprev message type. This is general information about the stream, but not everything.
+        Users can get a more detailed version using the detail command, but we want something simple for announcements.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param snowflake: Integer representing a discord Snowflake
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
         description = rec['title']
         value = "Multistream: No"
         if rec['multistream']:
@@ -94,6 +129,15 @@ class PicartoContext(basecontext.APIContext):
         return noprev
 
     async def makedetailembed(self, rec, showprev=True):
+        """This generates the embed to send when detailed info about a stream is requested. More information is provided
+        than with the other embeds.
+
+        :type showprev: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param showprev: Should the embed include the preview image?
+        :return: a discord.Embed representing the current stream.
+        """
         description = rec['title']
         multstring = ""
         # If the stream is in a multi, we need to assemble the string that says

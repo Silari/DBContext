@@ -60,9 +60,16 @@ class PiczelContext(basecontext.APIContext):
         self.lastupdate = lastupdate  # Tracks if last API update was successful.
         # Adding stuff below here is fine.
 
-    # Gets the detailed information about a stream. Used for makedetailmsg.
-    # It returns a stream record. Needs a bit of modification from the default.
     async def agetstream(self, streamname, headers=None):
+        """Call our API with the getchannel URL formatted with the channel name
+
+        :type streamname: str
+        :type headers: dict
+        :rtype: dict
+        :param streamname: String with the name of the stream, used to format the URL.
+        :param headers: Headers to be passed on to the API call.
+        :return: A dict with the information for the stream, exact content depends on the API.
+        """
         rec = False
         # We can still use the baseclass version to handle the API call
         detchan = await basecontext.APIContext.agetstream(self, streamname, headers)
@@ -84,14 +91,26 @@ class PiczelContext(basecontext.APIContext):
         return rec
 
     async def getrecname(self, rec):
+        """Gets the name of the record used to uniquely id the stream. Generally, rec['name'] or possibly rec['id'].
+        Used to store info about the stream, such as who is watching and track announcement messages.
+
+        :rtype: str
+        :param rec: A full stream record as returned by the API.
+        :return: A string with the record's unique name.
+        """
         # Should return the name of the record used to uniquely id the stream.
         # Generally, rec['name'] or possibly rec['id']. Used to store info about
         # the stream, such as who is watching and track announcement messages.
         return rec['username']
 
     async def getavatar(self, rec):
-        # Parse the avatar URL from the record.
-        # This seems to have changed around Feb 1, 2020.
+        """Parse the avatar URL from the record - this seems to have changed around Feb 1, 2020 so it's a function,
+        whereas the other subclasses just grab it directly.
+
+        :rtype: str
+        :param rec: A full stream record as returned by the API
+        :return: String with the URL where the avatar image is kept.
+        """
         try:  # New location, looks like everything uses this now
             return rec['user']['avatar']['url']
         except KeyError:
@@ -103,11 +122,21 @@ class PiczelContext(basecontext.APIContext):
         return None
 
     async def isadult(self, rec):
-        """Whether the API sets the stream as Adult. """
+        """Whether the API sets the stream as Adult.
+
+        :rtype: bool
+        :param rec: A full stream record as returned by the API
+        :return: Boolean representing if the API has marked the stream as Adult.
+        """
         return rec['adult']
 
     async def getrectime(self, rec):
-        """Time that a stream has ran, determined from the API data."""
+        """Time that a stream has ran, determined from the API data.
+
+        :rtype: datetime.timedelta
+        :param rec: A full stream record as returned by the API
+        :return: A timedelta representing how long the stream has run.
+        """
         # Time the stream began - given in UTC
         began = datetime.datetime.strptime(rec['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")
         return datetime.datetime.utcnow() - began
@@ -115,6 +144,16 @@ class PiczelContext(basecontext.APIContext):
     # The embed used by the default message type. Same as the simple embed except
     # that we add on a preview of the stream.
     async def makeembed(self, rec, snowflake=None, offline=False):
+        """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param snowflake: Integer representing a discord Snowflake
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
         # Simple embed is the same, we just need to add a preview image. Save code
         myembed = await self.simpembed(rec, snowflake, offline)
         thumburl = 'https://piczel.tv/static/thumbnail/stream_' + str(rec['id']) + '.jpg' + "?msgtime=" + str(
@@ -126,6 +165,17 @@ class PiczelContext(basecontext.APIContext):
     # about the stream - just the most important bits. Users can get a more
     # detailed version using the detail command.
     async def simpembed(self, rec, snowflake=None, offline=False):
+        """The embed used by the noprev message type. This is general information about the stream, but not everything.
+        Users can get a more detailed version using the detail command, but we want something simple for announcements.
+
+        :type snowflake: int
+        :type offline: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param snowflake: Integer representing a discord Snowflake
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
         description = rec['title']
         value = "Multistream: No"
         if rec['in_multi']:
@@ -144,6 +194,15 @@ class PiczelContext(basecontext.APIContext):
         return noprev
 
     async def makedetailembed(self, rec, showprev=True):
+        """This generates the embed to send when detailed info about a stream is requested. More information is provided
+        than with the other embeds.
+
+        :type showprev: bool
+        :rtype: discord.Embed
+        :param rec: A full stream record as returned by the API
+        :param showprev: Should the embed include the preview image?
+        :return: a discord.Embed representing the current stream.
+        """
         # This generates the embed to send when detailed info about a stream is
         # requested. The actual message is handled by basecontext's detailannounce
         description = rec['title']

@@ -131,6 +131,11 @@ class LimitedClient:
     """Allows modules limited access to needed Client functionality."""
 
     def __init__(self, parentclient):
+        """
+
+        :type parentclient: discord.Client
+        :param parentclient: A Client instance we use to create our LimitedClient.
+        """
         # get_channel, wait_until_ready, and is_closed()
         self.get_channel = parentclient.get_channel
         self.wait_until_ready = parentclient.wait_until_ready
@@ -142,8 +147,16 @@ fakeclient = LimitedClient(client)
 
 async def getglobal(guildid, option):
     """Gets the value for the option given in the global namespace, set in the
-       manage context. This allows for setting an option once for all contexts
-       which read from global."""
+    manage context. This allows for setting an option once for all contexts
+    which read from global.
+
+    :type guildid: int
+    :type option: str
+    :rtype: None | object
+    :param guildid: Integer representing the snowflake of the Guild we're retrieving this option for.
+    :param option:  String with the name of the option to retrieve.
+    :return: None if no option with that name, or the value of option-dependant type that represents its current setting
+    """
     mydata = contexts["manage"]["Data"]
     if option == 'Notify':  # Special handling for notify option
         try:
@@ -165,8 +178,10 @@ async def getglobal(guildid, option):
     return None  # No option of that type found in any location.
 
 
-# Used to convert old contexts to new one for 0.5 due to discord.py changes
 def convertcontexts():
+    """Deprecated: Used to convert old contexts to new system for 0.5 due to discord.py changes. Kept in case we need
+    to make a similar change again at some point, though the setup for data has changed since then so it will need
+    rewriting. """
     global newcont
     newcont = copy.deepcopy(contexts)
     for module in newcont:
@@ -228,8 +243,11 @@ def newmodcontext(contextmodule):
         pass
 
 
-# Function to setup a class as a context - handles the instance side of adding.
 def newclasscontext(classinst):
+    """Function to setup a class as a context - handles the instance side of adding.
+
+    :param classinst: Instance of a class that provides the minimum needed functions for a context, like APIContext.
+    """
     contdict[classinst.name] = classinst  # Keep a reference to it around
     # Instance needs the following:
     # Name - a string that acts as the command to activate and the name data is stored under
@@ -252,7 +270,13 @@ newclasscontext(twitchclass.TwitchContext())
 
 async def getcontext(name, message):
     """Grabs the context handler associated with name and calls the registered
-       function, providing the command and the data dict."""
+    function, providing the command and the data dict.
+
+    :type name: str
+    :type message: discord.Message
+    :param name: String with the context name to call
+    :param message: The discord.Message instance that invoked the context.
+    """
     try:
         await contfuncs[name](message.content.split()[2:], message)
     except (discord.Forbidden, asyncio.CancelledError):
@@ -267,14 +291,21 @@ async def getcontext(name, message):
 
 async def handler(command, message, handlerdata):
     """A generic handler function for a context. It should accept a string list
-       representing the command string AFTER the context identifier, the message
-       and a dict that stores all it's relevant data. It should return the
-       message to send to the originating channel, or None for no message."""
+    representing the command string AFTER the context identifier, the message
+    and a dict that stores all it's relevant data. It should return the
+    message to send to the originating channel, or None for no message."""
     # This is also used as the default init function - essentially does nothing
     return
 
 
 async def helphandler(command, message):
+    """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as needed.
+
+    :type command: list
+    :type message: discord.Message
+    :param command: List of strings which represent the contents of the message, split by the spaces.
+    :param message: discord.Message instance of the message which invoked this handler.
+    """
     if len(command) > 0:  # We were given additional paramters
         # Let's see if it's a command we understand.
         if command[0] == 'invite':
@@ -316,20 +347,42 @@ globalops = {}
 
 async def addglobal(optname, validate=None):
     """Adds a new option name to the list of options that manage will allow
-       setting via 'manage setopt <optname>'. optname must be a str or evalute
-       properly when compared to a string using ==. If validate is passed it
-       should be a function handle which is called when the value is set as
-       validate(optname,value). If the function return evalutes False, the user
-       will receive a message the value is not appropriate and the value is not
-       set."""
+    setting via 'manage setopt <optname>'. optname must be a str or evalute
+    properly when compared to a string using ==. If validate is passed it
+    should be a function handle which is called when the value is set as
+    validate(optname,value). If the function return evalutes False, the user
+    will receive a message the value is not appropriate and the value is not
+    set. This system is not complete.
+
+    :type optname: str
+    :type validate: function
+    :rtype: None
+    :param optname: String with the name of the option to add to the global list.
+    :param validate: A function that will be called in order to validate the setting of the option before it is set.
+     Should return False if the data is not appropriate for this option.
+    """
     defaultopts[optname] = validate
 
 
 async def getuserrole(guild):
+    """Find the manage role in the server
+
+    :type guild: discord.Guild
+    :rtype: None | discord.Role
+    :param guild: Guild instance to find the role in.
+    :return: The found role, possibly None if the role does not exist.
+    """
     return discord.utils.find(lambda m: m.name == managerolename, guild.roles)
 
 
 async def makeuserrole(guild):
+    """Make the manage role in the given guild.
+
+    :type guild: discord.Guild
+    :rtype: None | discord.Role
+    :param guild: Guild instance to create the role in.
+    :return: The created role, possibly None if the creation failed.
+    """
     # Find the bot role in the server
     userrole = discord.utils.find(lambda m: m.name == managerolename, guild.roles)
     # Doesn't exist, so we need to make it.
@@ -342,8 +395,16 @@ async def makeuserrole(guild):
     return userrole
 
 
-# Checks if the Member has a role with the specified name
 async def hasrole(member, rolename):
+    """Checks if the given Member has the management role. Includes a shim for interoperability with the old role name.
+
+    :type member: discord.Member
+    :type rolename: str
+    :rtype: bool
+    :param member: discord.Member instance to check for a role with the given name.
+    :param rolename: String with the role name to look for.
+    :return: Boolean indicating if the Member has a role with the rolename.
+    """
     for item in member.roles:
         # print(hasrole, item.name, client.user.name)
         if rolename == item.name:
@@ -353,11 +414,19 @@ async def hasrole(member, rolename):
 
 
 async def hasmanagerole(member):
+    """Checks if the given Member has the management role. Includes a shim for interoperability with the old role name.
+
+    :type member: discord.Member
+    :rtype: bool
+    :param member: discord.Member instance to check for the roles.
+    :return: Boolean indicating if the Member has the management role.
+    """
     # Second half of this is a shim for 1.0 to allow the old role name to work.
     return await hasrole(member, managerolename) or await hasrole(member, client.user.name)
 
 
 async def renamerole(guild):
+    """Deprecated. Function to handle the name change of the management role."""
     oldrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
     if not oldrole:
         return "Old role was not found, can not rename."
@@ -373,13 +442,25 @@ async def renamerole(guild):
 
 
 async def getnotifyrole(guild):
-    # Find the notify role in the server
+    """Find the notify role in the server
+
+    :type guild: discord.Guild
+    :rtype: None | discord.Role
+    :param guild: Guild instance to find the role in.
+    :return: The found role, possibly None if the role does not exist.
+    """
     userrole = discord.utils.find(lambda m: m.name == notifyrolename, guild.roles)
     return userrole  # Return the found role, or None if it failed
 
 
 async def makenotifyrole(guild):
-    # Make the StreamNotify role
+    """Make the notify role in the given guild.
+
+    :type guild: discord.Guild
+    :rtype: None | discord.Role
+    :param guild: Guild instance to create the role in.
+    :return: The created role, possibly None if the creation failed.
+    """
     userrole = None
     try:
         # The bot should have the ping any role perm, so the role doesn't need to be mentionable
@@ -392,7 +473,17 @@ async def makenotifyrole(guild):
 
 
 async def findmsg(guild, msgid, channel=None):
-    """Attempts to find a message with just the ID and the guild it came from"""
+    """Attempts to find a message with just the ID and the guild it came from
+
+    :type guild: discord.Guild
+    :type msgid: int
+    :type channel: discord.TextChannel
+    :rtype: discord.Message
+    :param guild: The guild to try and find the message in.
+    :param msgid: The int representing the Discord snowflake for the message to find.
+    :param channel: Channel to try and find the message in, which can help to find the message but isn't required.
+    :return: The Message instance for the message id, or None if the message was not found.
+    """
     # Step 1: Search given channel for message, if given
     if channel:  # Acts as a hint for where we're most likely to find the message
         try:  # Try to find the message in the channel
@@ -408,6 +499,13 @@ async def findmsg(guild, msgid, channel=None):
 
 
 async def managehandler(command, message):
+    """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as needed.
+
+    :type command: list
+    :type message: discord.Message
+    :param command: List of strings which represent the contents of the message, split by the spaces.
+    :param message: discord.Message instance of the message which invoked this handler.
+    """
     if len(command) == 0 or command[0] == 'help':
         msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
         msg += "\nperms: Has the bot check for missing permissions, and replies with any that are missing and what " \
@@ -687,6 +785,13 @@ newcontext("manage", managehandler, {'notifyserver': {}, 'notifymsg': {}})
 
 
 async def debughandler(command, message):
+    """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as needed.
+
+    :type command: list
+    :type message: discord.Message
+    :param command: List of strings which represent the contents of the message, split by the spaces.
+    :param message: discord.Message instance of the message which invoked this handler.
+    """
     # 'safe' commands like help can go up here
     # If there wasn't a command given, or the command was help
     if len(command) == 0 or command[0] == 'help':
@@ -798,31 +903,31 @@ async def debughandler(command, message):
 newcontext("debug", debughandler, {})
 
 
-# Sends a message to all servers
 async def sendall(msg):
+    """Sends a message to all servers. Generally used when updates are pushed."""
     msgset = set()
     msgcontexts = ('picarto', 'twitch', 'piczel')
     for thiscon in msgcontexts:
         mydata = contexts[thiscon]['Data']
-        for server in mydata['Servers']:
+        for serverid in mydata['Servers']:
             # Find their set announcement channel and add it to the list
             try:
-                msgset.add(mydata['Servers'][server]["AnnounceChannel"])
+                msgset.add(mydata['Servers'][serverid]["AnnounceChannel"])
                 continue  # Move to the next server, we got one
             except KeyError:
                 pass  # Server has no announcement channel set
             # Find a channel to use via stream overrides
-            if server in mydata['COver']:
-                for stream in mydata['COver'][server]:
+            if serverid in mydata['COver']:
+                for stream in mydata['COver'][serverid]:
                     try:
-                        msgset.add(mydata['COver'][server][stream]['Channel'])
+                        msgset.add(mydata['COver'][serverid][stream]['Channel'])
                         continue
                     except KeyError:
                         pass
     # print("sendall:",msgset)
-    for servchan in msgset:
+    for channelid in msgset:
         try:
-            channel = client.get_channel(servchan)
+            channel = client.get_channel(channelid)
             if channel:  # We may no longer be in the server which would mean no channel
                 await asyncio.sleep(1)  # Sleep to avoid hitting rate limit
                 await channel.send(msg)
@@ -847,11 +952,16 @@ async def sendall(msg):
 # server_permissions - Returns permissions.
 
 
-# This is used in one specific server to prevent the Patreon bot from removing
-# the patreon roles from users after they stop their pledge. He prefers to let
-# users keep those roles if they've given him money.
 @client.event
 async def on_member_update(before, after):
+    """This is used in one specific server to prevent the Patreon bot from removing the patreon roles from users after
+     they stop their pledge. He prefers to let users keep those roles if they've given him money.
+
+     :type before: discord.Member
+     :type after: discord.Member
+     :param before: discord.Member with the state before the change that prompted the event.
+     :param after: discord.Member with the state after the change that prompted the event.
+     """
     if before.guild.id != 253682347420024832:
         return
     # print(repr(before.roles))
@@ -879,9 +989,14 @@ async def on_member_update(before, after):
     return
 
 
-# Part of the manage function to add user roles to be notified.
 @client.event
 async def on_raw_reaction_add(rawreact):
+    """Part of the manage function to add user roles to be notified. Checks if this is a reaction on a message we are
+    watching for. If it is, calls managenotify to handle the add/removal of the role.
+
+    :type rawreact: discord.RawReactionActionEvent
+    :param rawreact: Payload for the discord.Client event that called this event.
+    """
     # member - only on ADD, use if available.
     # user_id - would need to get member from this and guild_id
     # emoji - PartialEmoji - name may work? otherwise use id
@@ -911,6 +1026,12 @@ async def on_raw_reaction_add(rawreact):
 
 @client.event
 async def on_raw_reaction_remove(rawreact):
+    """Part of the manage function to remove user roles to be notified. Checks if this is a reaction on a message we are
+    watching for. If it is, calls managenotify to handle the add/removal of the role.
+
+    :type rawreact: discord.RawReactionActionEvent
+    :param rawreact: Payload for the discord.Client event that called this event.
+    """
     if rawreact.user_id == client.user.id:
         return  # This is us, do nothing
     # Is this a message we're monitoring for reacts? If not, exit
@@ -929,9 +1050,12 @@ async def on_raw_reaction_remove(rawreact):
 
 
 async def managenotify(rawreact):
-    # This should add/remove the notification role from the Member
-    # This should only be called if the server has notifications enabled, so we
-    # don't need to check that.
+    """This should add/remove the notification role from the Member. This should only be called if the server has
+    notifications enabled, so we don't need to check that.
+
+    :type rawreact: discord.RawReactionActionEvent
+    :param rawreact: RawReactionActionEvent we need to parse to determine if we add or remove the notification role.
+    """
     mydata = contexts['manage']['Data']  # Has our contexts data in it
     # We need to find our role in the server.
     notifyrole = None  # ID of the notify role
@@ -952,13 +1076,15 @@ async def managenotify(rawreact):
     return
 
 
-# The main event handler: handles all incoming messages and assigns them to the
-# proper context/replies to DMs.
 @client.event
 async def on_message(message):
+    """The main event handler: handles all incoming messages and assigns them to the proper context/replies to DMs.
+
+    :param message: The message that prompted the event.
+    :type message: discord.Message
+    """
     # print("on_message",message.role_mentions)
     # Ignore messages we sent
-    # print("on_message")
     if message.author == client.user:
         return
     # We ignore any messages from other bots. Could lead to bad things.
@@ -1027,14 +1153,14 @@ async def on_message(message):
 
 @client.event
 async def on_resumed():
-    # Ensure our activity is set when resuming and add a log that it resumed.
+    """Ensure our activity is set when resuming and add a log that it resumed."""
     # print("Client resumed")
     await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
 
 
-# Fires when the bot is up and running. Sets our presence and logs the connection
 @client.event
 async def on_ready():
+    """Fires when the bot is up and running. Sets our presence and logs the connection."""
     print("------\nLogged in as", client.user.name, client.user.id, "\n------")
     # We set our activity here - we can't do it in the client creation because
     # we didn't have the user name yet
@@ -1111,8 +1237,9 @@ async def savecontexts():
 
 
 async def savetask():
-    # Calls savecontext every five minutes. Stops immediately if client is closed
-    # so it won't interfere with the save on close.
+    """Calls savecontext every five minutes. Stops immediately if client is closed so it won't interfere with the save
+     on close."""
+    # TODO Possibly change this to only save if something has changed?
     while not client.is_closed():
         try:
             # These were broken up into minute chunks to avoid a hang when closing
@@ -1142,8 +1269,7 @@ async def savetask():
 
 
 def savetemps():
-    # Saves temporary data for registered module and class contexts, to be loaded
-    # on restart.
+    """Saves temporary data for registered module and class contexts, to be loaded on restart."""
     for name, context in contdict.items():  # Iterate over all our contexts
         buff = False  # Clear buffer to remove any old data
         try:
@@ -1166,7 +1292,7 @@ def savetemps():
 
 
 def loadtemps():
-    # Loads the saved temp data into their modules via their loaddata function
+    """Loads saved temp data into their modules via their loaddata function"""
     for name, context in contdict.items():  # Iterate over all our contexts
         data = False  # Clear data
         dname = name + ".dbm"  # Name is the context name, plus .dbm
@@ -1201,7 +1327,11 @@ signal.signal(signal.SIGTERM, closebot)
 
 
 async def makesession():
-    """Creates an aiohttp.ClientSession instance, shared among all modules."""
+    """Creates an aiohttp.ClientSession instance, shared among all modules.
+
+    :rtype: aiohttp.ClientSession
+    :return: Returns an aiohttp.ClientSession to be used by any context which needs to make HTTP calls.
+    """
     # We create a timeout instance to allow a max of 60 seconds per call
     mytime = aiohttp.ClientTimeout(total=60)
     # Note that individual requests CAN still override this, but for most APIs it
@@ -1240,8 +1370,9 @@ async def startbot():
     await myconn.close()
 
 
-# noinspection PyBroadException,PyUnusedLocal
+# noinspection PyBroadException
 def startupwrapper():
+    """Starts the async loop and handles exceptions that propagate outside of it, and cleanup."""
     try:
         # client.run(token)
         myloop.run_until_complete(startbot())
