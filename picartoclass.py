@@ -23,9 +23,9 @@ def connect():
 
 
 # Gets the detailed information about a stream. Non-async, debugging.
-def getstream(streamname):
+def getstream(recordid):
     try:
-        newrequest = request.Request("https://api.picarto.tv/v1/channel/name/" + streamname)
+        newrequest = request.Request("https://api.picarto.tv/v1/channel/name/" + recordid)
         newconn = request.urlopen(newrequest)
         buff = newconn.read()
         parse = json.loads(buff)
@@ -50,127 +50,128 @@ class PicartoContext(basecontext.APIContext):
         self.lastupdate = lastupdate  # Tracks if last API update was successful.
         # Adding stuff below here is fine, obviously.
 
-    async def getrecname(self, rec):
-        """Gets the name of the record used to uniquely id the stream. Generally, rec['name'] or possibly rec['id'].
-        Used to store info about the stream, such as who is watching and track announcement messages.
+    async def getrecordid(self, record):
+        """Gets the name of the record used to uniquely id the stream. Generally, record['name'] or possibly
+        record['id']. Used to store info about the stream, such as who is watching and track announcement messages.
 
         :rtype: str
-        :param rec: A full stream record as returned by the API.
+        :param record: A full stream record as returned by the API.
         :return: A string with the record's unique name.
         """
-        return rec['name']
+        return record['name']
 
-    async def isadult(self, rec):
+    async def isadult(self, record):
         """Whether the API sets the stream as Adult.
 
         :rtype: bool
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :return: Boolean representing if the API has marked the stream as Adult.
         """
-        return rec['adult']
+        return record['adult']
 
-    async def getrectime(self, rec):
+    async def getrectime(self, record):
         """Time that a stream has ran, determined from the API data.
 
         :rtype: datetime.timedelta
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :return: A timedelta representing how long the stream has run.
         """
         try:
             # Time the stream began
-            # print("getrectime",rec)
-            began = datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
+            # print("getrectime",record)
+            began = datetime.datetime.strptime(''.join(record['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
         except KeyError:  # ONLY detailed records have last_live.
             # If the API changes to include it, this'll work as is to use it.
             return datetime.timedelta()
         return datetime.datetime.now(datetime.timezone.utc) - began
 
-    async def makeembed(self, rec, snowflake=None, offline=False):
+    async def makeembed(self, record, snowflake=None, offline=False):
         """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
 
         :type snowflake: int
         :type offline: bool
         :rtype: discord.Embed
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :param snowflake: Integer representing a discord Snowflake
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
         # Simple embed is the same, we just need to add a preview image.
-        myembed = await self.simpembed(rec, snowflake, offline)
-        myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
+        myembed = await self.simpembed(record, snowflake, offline)
+        myembed.set_image(url=record['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
         return myembed
 
-    async def simpembed(self, rec, snowflake=None, offline=False):
+    async def simpembed(self, record, snowflake=None, offline=False):
         """The embed used by the noprev message type. This is general information about the stream, but not everything.
         Users can get a more detailed version using the detail command, but we want something simple for announcements.
 
         :type snowflake: int
         :type offline: bool
         :rtype: discord.Embed
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :param snowflake: Integer representing a discord Snowflake
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
-        description = rec['title']
+        description = record['title']
         value = "Multistream: No"
-        if rec['multistream']:
+        if record['multistream']:
             value = "Multistream: Yes"
         if not snowflake:
-            embtitle = rec['name'] + " has come online!"
+            embtitle = record['name'] + " has come online!"
         else:
-            embtitle = await self.streammsg(snowflake, rec, offline)
-        noprev = discord.Embed(title=embtitle, url=self.streamurl.format(rec['name']), description=description)
-        noprev.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"), value="Viewers: " + str(rec['viewers']),
+            embtitle = await self.streammsg(snowflake, record, offline)
+        noprev = discord.Embed(title=embtitle, url=self.streamurl.format(record['name']), description=description)
+        noprev.add_field(name="Adult: " + ("Yes" if record['adult'] else "No"),
+                         value="Viewers: " + str(record['viewers']),
                          inline=True)
-        noprev.add_field(name=value, value="Gaming: " + ("Yes" if rec['gaming'] else "No"), inline=True)
-        noprev.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
+        noprev.add_field(name=value, value="Gaming: " + ("Yes" if record['gaming'] else "No"), inline=True)
+        noprev.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + record['name'].lower() + "/dsdefault.jpg")
         return noprev
 
-    async def makedetailembed(self, rec, showprev=True):
+    async def makedetailembed(self, record, showprev=True):
         """This generates the embed to send when detailed info about a stream is requested. More information is provided
         than with the other embeds.
 
         :type showprev: bool
         :rtype: discord.Embed
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :param showprev: Should the embed include the preview image?
         :return: a discord.Embed representing the current stream.
         """
-        description = rec['title']
+        description = record['title']
         multstring = ""
         # If the stream is in a multi, we need to assemble the string that says
         # who they are multistreaming with.
-        if rec["multistream"]:
+        if record["multistream"]:
             # Pare down the list to those who are currently online
-            online = list((x for x in rec["multistream"] if x["online"]))
+            online = list((x for x in record["multistream"] if x["online"]))
             # Remove the record we're detailing from the list
-            online = list((x for x in online if x["name"] != rec["name"]))
+            online = list((x for x in online if x["name"] != record["name"]))
             if online:
                 multstring += " and streaming with " + online[0]["name"]
                 if len(online) == 2:
                     multstring += " and " + online[1]["name"]
                 elif len(online) == 3:
                     multstring += ", " + online[1]["name"] + ", and " + online[2]["name"]
-        # print(multstring," : ", str(rec['multistream']))
+        # print(multstring," : ", str(record['multistream']))
         myembed = discord.Embed(
-            title=rec['name'] + "'s stream is " + ("" if rec['online'] else "not ") + "online" + multstring,
-            url="https://picarto.tv/" + rec['name'], description=description)
-        myembed.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"),
-                          value="Gaming: " + ("Yes" if rec['gaming'] else "No"), inline=True)
-        if rec['online']:
-            lastonline = "Streaming for " + await self.streamtime(await self.getrectime(rec))
-            viewers = "Viewers: " + str(rec['viewers'])
+            title=record['name'] + "'s stream is " + ("" if record['online'] else "not ") + "online" + multstring,
+            url="https://picarto.tv/" + record['name'], description=description)
+        myembed.add_field(name="Adult: " + ("Yes" if record['adult'] else "No"),
+                          value="Gaming: " + ("Yes" if record['gaming'] else "No"), inline=True)
+        if record['online']:
+            lastonline = "Streaming for " + await self.streamtime(await self.getrectime(record))
+            viewers = "Viewers: " + str(record['viewers'])
         else:
             # Doesn't work pre 3.7, removed.
-            # lastonline = datetime.datetime.fromisoformat(rec['last_live']).strftime("%m/%d/%Y")
+            # lastonline = datetime.datetime.fromisoformat(record['last_live']).strftime("%m/%d/%Y")
             # This works with 3.6/3.7
-            lastonline = "Last online: " + datetime.datetime.strptime(''.join(rec['last_live'].rsplit(':', 1)),
+            lastonline = "Last online: " + datetime.datetime.strptime(''.join(record['last_live'].rsplit(':', 1)),
                                                                       '%Y-%m-%dT%H:%M:%S%z').strftime("%m/%d/%Y")
-            viewers = "Total Views: " + str(rec['viewers_total'])
+            viewers = "Total Views: " + str(record['viewers_total'])
         myembed.add_field(name=lastonline, value=viewers, inline=True)
         if showprev:
-            myembed.set_image(url=rec['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
-        myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
+            myembed.set_image(url=record['thumbnails']['web'] + "?msgtime=" + str(int(time.time())))
+        myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + record['name'].lower() + "/dsdefault.jpg")
         return myembed

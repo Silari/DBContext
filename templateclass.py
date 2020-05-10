@@ -18,7 +18,7 @@ lastupdate = basecontext.Updated()  # Class that tracks if update succeeded - em
 
 class TemplateContext(basecontext.APIContext):
     defaultname = "template"  # This is used to name this context and is the command
-    # URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecname(rec))
+    # URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecordid(record))
     streamurl = "http://www.example.com/{0}"
     # URL to call to update the list of online streams, used by updateparsed
     apiurl = "http://www.example.com/api/v1/"
@@ -36,16 +36,16 @@ class TemplateContext(basecontext.APIContext):
         # Adding stuff below here is fine, obviously.
 
     async def savedata(self):
-        # Used by dbcontext to get temporary data from the class prior to restart.
-        # If temp data is found on start, will be sent to loaddata shortly after the
-        # bot starts, but before the background task updatewrapper is started.
-        # Return MUST evaluate as True but otherwise can be anything that pickle
-        # can handle, and will be returned as is.
+        """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it
+        will be sent to loaddata shortly after the bot starts, but before the background task updatewrapper is started.
+        Return MUST evaluate as True but otherwise can be anything that pickle can handle, and will be returned as is.
+        """
         return False
 
     async def loaddata(self, saveddata):
-        # Used to load temporary data that was retrieved from savedata on the
-        # previous run. Return doesn't matter.
+        """Loads data previously saved by savedata and reintegrates it into self.parsed. Includes a check that the data
+        is less than an hour old, and discards it if it is.
+        """
         return True
 
     # Called to update the API data by basecontext's updatetask. When it's finished
@@ -102,20 +102,20 @@ class TemplateContext(basecontext.APIContext):
 
     # Gets the detailed information about a stream. Used for makedetailmsg.
     # It returns a stream record.
-    async def agetstream(self, streamname, headers=None):
+    async def agetstream(self, recordid, headers=None):
         # basecontexts version can handle most cases now that it's been generalized
         # If you don't need any special handling of the call or output, can be deleted
         # To see an example of overriding, look at piczel class, which needs to
         # modify the return a bit before passing it along.
-        return await self.acallapi(self.channelurl.format(streamname), headers)
+        return await self.acallapi(self.channelurl.format(recordid), headers)
 
-    async def getrecname(self, rec):
+    async def getrecordid(self, record):
         # Should return the name of the record used to uniquely id the stream.
-        # Generally, rec['name'] or possibly rec['id']. Used to store info about
+        # Generally, record['name'] or possibly record['id']. Used to store info about
         # the stream, such as who is watching and track announcement messages.
-        return rec['name']
+        return record['name']
 
-    async def getrectime(self, rec):
+    async def getrectime(self, record):
         """Time that a stream has ran, determined from the API data."""
         # If the API returns any kind of data about stream length, it should go
         # here. The following works as a default return, as it's only ever used
@@ -123,15 +123,15 @@ class TemplateContext(basecontext.APIContext):
         # use it in the detail embed as well, so you may want it there too.
         # Default return, duration of 0 seconds. It is safe to delete this
         # function, as basecontext has a working version.
-        began = rec['started_at']
+        began = record['started_at']
         return datetime.datetime.now(datetime.timezone.utc) - began
 
     # The embed used by the default message type. Same as the simple embed except
     # that we add on a preview of the stream.
-    async def makeembed(self, rec, snowflake=None, offline=False):
+    async def makeembed(self, record, snowflake=None, offline=False):
         # You can remove this function and baseclass will just use the simpembed
         # Simple embed is the same, we just need to add a preview image. Save code
-        myembed = await self.simpembed(rec)
+        myembed = await self.simpembed(record)
         # The msgtime parameter added to the end helps avoid Discord's overly long caching feature.
         myembed.set_image(url='' + "?msgtime=" + str(int(time.time())))  # Add your image here
         return myembed
@@ -139,11 +139,11 @@ class TemplateContext(basecontext.APIContext):
     # The embed used by the noprev option message. This is general information
     # about the stream - just the most important bits. Users can get a more
     # detailed version using the detail command.
-    async def simpembed(self, rec, snowflake=None, offline=False):
+    async def simpembed(self, record, snowflake=None, offline=False):
         noprev = discord.Embed(title='')
         return noprev
 
-    async def makedetailembed(self, rec, snowflake=None, offline=False):
+    async def makedetailembed(self, record, snowflake=None, offline=False):
         # This generates the embed to send when detailed info about a channel is
         # requested. The actual message is handled by basecontext's detailannounce
         myembed = discord.Embed(title='')

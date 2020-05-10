@@ -50,6 +50,8 @@
 #   already?
 
 # Import module and setup our client and token.
+from typing import Dict, Union
+
 import discord
 import copy  # Needed to deepcopy contexts for periodic saving
 import asyncio  # Async wait command
@@ -164,7 +166,7 @@ async def getglobal(guildid, option):
             guild = client.get_guild(guildid)
             # print(guild.get_role(mydata["notifymsg"][mydata['notifyserver'][guildid]]))
             return guild.get_role(mydata["notifymsg"][mydata["notifyserver"][guildid]])
-        except KeyError as e:
+        except KeyError:
             # print('getglobal',repr(e))
             return False
     try:  # Try to read this guild's option from the manage contexts data.
@@ -289,6 +291,7 @@ async def getcontext(name, message):
         print("Content:", message.content)
 
 
+# noinspection PyUnusedLocal
 async def handler(command, message, handlerdata):
     """A generic handler function for a context. It should accept a string list
     representing the command string AFTER the context identifier, the message
@@ -334,7 +337,7 @@ async def helphandler(command, message):
 
 newcontext("help", helphandler, {})
 
-defaultopts = {
+defaultopts: Dict[str, Union[str, bool, None, object]] = {
     'Type': 'default',  # Type of announcement to use, default= embed with preview.
     'MSG': 'edit',  # Should messages be edited and/or removed after announcement?
     'Stop': False,  # Should no new announcements be made?
@@ -806,20 +809,21 @@ async def debughandler(command, message):
         return
     if command[0] == 'embed':
         # Debug to create detail embed from picarto stream
-        rec = await contdict["picarto"].agetstream(command[1])
-        description = rec['title']
-        myembed = discord.Embed(title=rec['name'] + " has come online!", url="https://picarto.tv/" + rec['name'],
+        record = await contdict["picarto"].agetstream(command[1])
+        description = record['title']
+        myembed = discord.Embed(title=record['name'] + " has come online!", url="https://picarto.tv/" + record['name'],
                                 description=description)
         value = "Multistream: No"
-        if rec['multistream']:
+        if record['multistream']:
             value = "\nMultistream: Yes"
-        myembed.add_field(name="Adult: " + ("Yes" if rec['adult'] else "No"), value="Viewers: " + str(rec['viewers']),
+        myembed.add_field(name="Adult: " + ("Yes" if record['adult'] else "No"),
+                          value="Viewers: " + str(record['viewers']),
                           inline=True)
-        myembed.add_field(name=value, value="Gaming: " + ("Yes" if rec['gaming'] else "No"), inline=True)
-        # myembed.set_footer(text=picartourl + rec['name'])
-        myembed.set_image(url=rec['thumbnails']['web'])
-        myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + rec['name'].lower() + "/dsdefault.jpg")
-        msg = rec['name'] + " has come online! Watch them at <https://picarto.tv/" + rec['name'] + ">"
+        myembed.add_field(name=value, value="Gaming: " + ("Yes" if record['gaming'] else "No"), inline=True)
+        # myembed.set_footer(text=picartourl + record['name'])
+        myembed.set_image(url=record['thumbnails']['web'])
+        myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + record['name'].lower() + "/dsdefault.jpg")
+        msg = record['name'] + " has come online! Watch them at <https://picarto.tv/" + record['name'] + ">"
         await message.channel.send(msg, embed=myembed)
     elif command[0] == 'eval':
         if command[1] == 'await':
@@ -991,7 +995,7 @@ async def on_member_update(before, after):
 
 @client.event
 async def on_raw_reaction_add(rawreact):
-    """Part of the manage function to add user roles to be notified. Checks if this is a reaction on a message we are
+    """Part of the manage function to add users to be notified. Checks if this is a reaction on a message we are
     watching for. If it is, calls managenotify to handle the add/removal of the role.
 
     :type rawreact: discord.RawReactionActionEvent
@@ -1011,22 +1015,22 @@ async def on_raw_reaction_add(rawreact):
     if rawreact.emoji.name == '\U0001f509':
         # print("RawReactAdd sound!")
         # We get the guild for this reaction now, as managenotify expects it
-        rawreact.guild = client.get_guild(rawreact.guild_id)
-        await managenotify(rawreact)
+        guild = client.get_guild(rawreact.guild_id)
+        await managenotify(rawreact, guild)
     # Adding the :mute: emote acts as if you removed the sound emote, as a fallback
     if rawreact.emoji.name == '\U0001f507':
         # print("RawReactAdd mute!")
         rawreact.event_type = 'REACTION_REMOVE'
         # We get the guild for this reaction now, as managenotify expects it
-        rawreact.guild = client.get_guild(rawreact.guild_id)
-        await managenotify(rawreact)
+        guild = client.get_guild(rawreact.guild_id)
+        await managenotify(rawreact, guild)
     # print(rawreact.event_type)
     return
 
 
 @client.event
 async def on_raw_reaction_remove(rawreact):
-    """Part of the manage function to remove user roles to be notified. Checks if this is a reaction on a message we are
+    """Part of the manage function to remove users to be notified. Checks if this is a reaction on a message we are
     watching for. If it is, calls managenotify to handle the add/removal of the role.
 
     :type rawreact: discord.RawReactionActionEvent
@@ -1037,24 +1041,27 @@ async def on_raw_reaction_remove(rawreact):
     # Is this a message we're monitoring for reacts? If not, exit
     if not (rawreact.message_id in contexts['manage']['Data']["notifymsg"]):
         return
-    # We should set up member and add to rawreact, then move to handle function
+    # We should set up member and add to rawreact, then move to handle function. Getting the member requires getting the
+    # guild, so we keep that reference and pass it on to save time regetting it.
     if rawreact.emoji.name == '\U0001f509':
         # print("RawReactRemove sound!")
-        rawreact.guild = client.get_guild(rawreact.guild_id)
-        rawreact.member = rawreact.guild.get_member(rawreact.user_id)
+        guild = client.get_guild(rawreact.guild_id)
+        rawreact.member = guild.get_member(rawreact.user_id)
         if not rawreact.member:  # Something bad happened
             # print("RawReactRemove was unable to find the user Member")
             return
-        await managenotify(rawreact)
+        await managenotify(rawreact, guild)
     return
 
 
-async def managenotify(rawreact):
+async def managenotify(rawreact, guild):
     """This should add/remove the notification role from the Member. This should only be called if the server has
     notifications enabled, so we don't need to check that.
 
     :type rawreact: discord.RawReactionActionEvent
+    :type guild: discord.Guild
     :param rawreact: RawReactionActionEvent we need to parse to determine if we add or remove the notification role.
+    :param guild: discord.Guild instance where the reaction took place.
     """
     mydata = contexts['manage']['Data']  # Has our contexts data in it
     # We need to find our role in the server.
@@ -1062,7 +1069,7 @@ async def managenotify(rawreact):
     try:
         # mydata["notify"] has a dict of MSGID:RoleID. If no message id, no role
         # The server owner has to have used the 'manage notify' command to set it up
-        notifyrole = rawreact.guild.get_role(mydata["notifymsg"][rawreact.message_id])
+        notifyrole = guild.get_role(mydata["notifymsg"][rawreact.message_id])
     except Exception as e:  # If we fail for any reason, ignore it
         # For debugging reasons, we print the error
         print("Failed to find role?", repr(e))  # Possible the server isn't using it anymore?
@@ -1084,7 +1091,7 @@ async def on_message(message):
     :type message: discord.Message
     """
     # print("on_message",message.role_mentions)
-    # Ignore messages we sent
+    # Ignore messages we sent - this could be removed as we'd always fail the next test anyway?
     if message.author == client.user:
         return
     # We ignore any messages from other bots. Could lead to bad things.
@@ -1381,7 +1388,7 @@ def startupwrapper():
         # These we want to note so we can catch them where it happened
         print("Uncaught exception, closing", repr(e))
         traceback.print_tb(e.__traceback__)
-    except BaseException as e:
+    except BaseException:
         # There shouldn't be many of these, as SystemExit and KBInt are the two big ones
         # so note them so we can see what we might need to do specifically for them.
         # OR it could completely ignore our try:catch in startbot and immediately go
@@ -1393,7 +1400,7 @@ def startupwrapper():
             for task in tasks:
                 task.cancel()
             closebot()
-        except Exception as e:
+        except Exception:
             # print(repr(e))
             pass
         # Save the handler data whenever we close for any reason.

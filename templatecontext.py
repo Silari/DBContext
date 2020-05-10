@@ -92,16 +92,19 @@ async def updatetask():
 
 
 async def savedata():
-    # Used by dbcontext to get temporary data from the module prior to restart.
-    # If temp data is found on start, will be sent to loaddata shortly after the
-    # bot starts, but before the background task updatewrapper is started.
-    # Return MUST evaluate as True but otherwise can be anything that pickle
-    # can handle, and will be returned as is.
+    """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it
+    will be sent to loaddata shortly after the bot starts, but before the background task updatewrapper is started.
+    Return MUST evaluate as True but otherwise can be anything that pickle can handle, and will be returned as is.
+    """
     return False
 
 
 async def loaddata(saveddata):
-    # Used to load temporary data
+    """Loads data previously saved by savedata and reintegrates it into self.parsed. Includes a check that the data
+    is less than an hour old, and discards it if it is.
+    """
+    if saveddata:
+        return False
     return False
 
 

@@ -16,7 +16,6 @@ import apitoken
 parsed = {}  # Dict with key == 'user_name'
 lastupdate = basecontext.Updated()  # Class that tracks if update succeeded - empty if not successful
 
-
 twitchheader = apitoken.twitchheader
 if (not twitchheader) or (not apitoken.clientid) or (not apitoken.clientsecret):
     raise Exception("You must provide a valid twitch header with access token, client ID, and client secret for use!")
@@ -32,9 +31,9 @@ def connect():
 
 
 # Gets the detailed information about a stream, non-async. only for testing.
-def getstream(streamname):
+def getstream(recordid):
     try:
-        newrequest = request.Request('https://api.twitch.tv/helix/streams?user_login=' + streamname,
+        newrequest = request.Request('https://api.twitch.tv/helix/streams?user_login=' + recordid,
                                      headers=twitchheader)
         newconn = request.urlopen(newrequest)
         buff = newconn.read()
@@ -48,7 +47,7 @@ def getstream(streamname):
 
 class TwitchContext(basecontext.APIContext):
     defaultname = "twitch"  # This is used to name this context and is the command
-    streamurl = "https://twitch.tv/{0}"  # Gets called as self.streamurl.format(await self.getrecname(rec)) generally
+    streamurl = "https://twitch.tv/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(rec)) generally
     channelurl = "https://api.twitch.tv/helix/streams?user_login={0}"
     apiurl = 'https://api.twitch.tv/helix/streams?user_login='
 
@@ -150,17 +149,17 @@ class TwitchContext(basecontext.APIContext):
 
     # Gets the detailed information about a stream. Used for makedetailmsg.
     # It returns a stream record.
-    async def agetstreamoffline(self, streamname, headers=None):
+    async def agetstreamoffline(self, recordid, headers=None):
         """Call our API with the getchannel URL formatted with the channel name
 
-        :type streamname: str
+        :type recordid: str
         :type headers: dict
         :rtype: dict
-        :param streamname: String with the name of the stream, used to format the URL.
+        :param recordid: String with the name of the stream, used to format the URL.
         :param headers: Headers to be passed on to the API call.
         :return: A dict with the information for the stream, exact content depends on the API.
         """
-        detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + streamname, headers)
+        detchan = await self.acallapi('https://api.twitch.tv/helix/users?login=' + recordid, headers)
         if not detchan:
             return False
         if detchan['data']:
@@ -168,25 +167,25 @@ class TwitchContext(basecontext.APIContext):
         return False
 
     # Gets the detailed information about a stream
-    async def agetstream(self, streamname, headers=None):
+    async def agetstream(self, recordid, headers=None):
         """Call our API with the getchannel URL formatted with the channel name
 
-        :type streamname: str
+        :type recordid: str
         :type headers: dict
         :rtype: dict
-        :param streamname: String with the name of the stream, used to format the URL.
+        :param recordid: String with the name of the stream, used to format the URL.
         :param headers: Headers to be passed on to the API call.
         :return: A dict with the information for the stream, exact content depends on the API.
         """
         # Call the API with our channelurl, using the twitch header
-        detchan = await self.acallapi(self.channelurl.format(streamname))
+        detchan = await self.acallapi(self.channelurl.format(recordid))
         if not detchan:
             return False
         # If we have a record in 'data' then the stream is online
         if detchan['data']:
             return detchan['data'][0]
         else:  # Stream isn't online so grab the offline data.
-            return await self.agetstreamoffline(streamname)
+            return await self.agetstreamoffline(recordid)
 
     async def acallapi(self, url, headers=None):
         """Overrides acallapi to ensure we send in the needed twitch headers.
@@ -208,10 +207,10 @@ class TwitchContext(basecontext.APIContext):
     async def getgame(self, gameid):
         """Gets the name associated with the given gameid. Stores results to prevent unneeded lookups.
 
-        :type gameid: int
+        :type gameid: str
         :rtype: str
         :param gameid:
-          Game id to look up, must be an integer >= 0
+          Game id to look up, must be a string representing an integer >= 0
         :return:
           str containing the name of the set game, or an error message.
         """
@@ -235,105 +234,108 @@ class TwitchContext(basecontext.APIContext):
             print("Error in game name:", repr(e), ":", repr(gameid), ":", buff)
             return "Error getting game name: " + str(gameid)
 
-    async def getrecname(self, rec):
-        """Gets the name of the record used to uniquely id the stream. Generally, rec['name'] or possibly rec['id'].
-        Used to store info about the stream, such as who is watching and track announcement messages.
+    async def getrecordid(self, record):
+        """Gets the name of the record used to uniquely id the stream. Generally, record['name'] or possibly
+        record['id']. Used to store info about the stream, such as who is watching and track announcement messages.
 
         :rtype: str
-        :param rec: A full stream record as returned by the API.
+        :param record: A full stream record as returned by the API.
         :return: A string with the record's unique name.
         """
-        if 'user_name' in rec:  # Stream type record, ie online streams
-            return rec['user_name']
+        if 'user_name' in record:  # Stream type record, ie online streams
+            return record['user_name']
         else:  # User type record - ie offline record used by detailannounce
-            return rec['display_name']
+            return record['display_name']
 
-    async def getrectime(self, rec):
+    async def getrectime(self, record):
         """Time that a stream has ran, determined from the API data.
 
         :rtype: datetime.timedelta
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :return: A timedelta representing how long the stream has run.
         """
         try:
             # Time the stream began - given in UTC
-            began = datetime.datetime.strptime(rec['started_at'], "%Y-%m-%dT%H:%M:%SZ")
+            began = datetime.datetime.strptime(record['started_at'], "%Y-%m-%dT%H:%M:%SZ")
         except KeyError:  # May not have 'started_at' key, if offline?
             # This creates an empty timedelta - 0 seconds long. It'll never be
             # the longest duration, so it's discarded later.
             return datetime.timedelta()
         return datetime.datetime.utcnow() - began
 
-    async def makeembed(self, rec, snowflake=None, offline=False):
+    async def makeembed(self, record, snowflake=None, offline=False):
         """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
 
         :type snowflake: int
         :type offline: bool
         :rtype: discord.Embed
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :param snowflake: Integer representing a discord Snowflake
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
         # You can remove this function and baseclass will just use the simpembed
         # Simple embed is the same, we just need to add a preview image.
-        myembed = await self.simpembed(rec, snowflake, offline)
+        myembed = await self.simpembed(record, snowflake, offline)
         myembed.set_image(
-            url=rec['thumbnail_url'].replace("{width}", "848").replace("{height}", "480") + "?msgtime=" + str(
+            url=record['thumbnail_url'].replace("{width}", "848").replace("{height}", "480") + "?msgtime=" + str(
                 int(time.time())))
         return myembed
 
     # The embed used by the noprev option message. This is general information
     # about the stream - just the most important bits. Users can get a more
     # detailed version using the detail command.
-    async def simpembed(self, rec, snowflake=None, offline=False):
+    async def simpembed(self, record, snowflake=None, offline=False):
         """The embed used by the noprev message type. This is general information about the stream, but not everything.
         Users can get a more detailed version using the detail command, but we want something simple for announcements.
 
         :type snowflake: int
         :type offline: bool
         :rtype: discord.Embed
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :param snowflake: Integer representing a discord Snowflake
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
-        description = rec['title']
+        description = record['title']
         if not snowflake:
-            embtitle = rec['user_name'] + " has come online!"
+            embtitle = record['user_name'] + " has come online!"
         else:
-            embtitle = await self.streammsg(snowflake, rec, offline)
-        noprev = discord.Embed(title=embtitle, url="https://twitch.tv/" + rec['user_name'], description=description)
-        noprev.add_field(name="Game: " + await self.getgame(rec['game_id']),
-                         value="Viewers: " + str(rec['viewer_count']), inline=True)
+            embtitle = await self.streammsg(snowflake, record, offline)
+        noprev = discord.Embed(title=embtitle, url="https://twitch.tv/" + record['user_name'], description=description)
+        noprev.add_field(name="Game: " + await self.getgame(record['game_id']),
+                         value="Viewers: " + str(record['viewer_count']), inline=True)
         return noprev
 
-    async def makedetailembed(self, rec, showprev=True):
+    async def makedetailembed(self, record, showprev=True):
         """This generates the embed to send when detailed info about a stream is requested. More information is provided
         than with the other embeds.
 
         :type showprev: bool
         :rtype: discord.Embed
-        :param rec: A full stream record as returned by the API
+        :param record: A full stream record as returned by the API
         :param showprev: Should the embed include the preview image?
         :return: a discord.Embed representing the current stream.
         """
         # This is more complicated since there is a different record type needed
         # if the stream is offline, than if it is online.
-        if 'user_id' in rec:  # user_id field is only on streams, not users
-            description = rec['title']
-            myembed = discord.Embed(
-                title=rec['user_name'] + " is online for " + await self.streamtime(await self.getrectime(rec)) + "!",
-                url="https://twitch.tv/" + rec['user_name'], description=description)
-            myembed.add_field(name="Game: " + await self.getgame(rec['game_id']),
-                              value="Viewers: " + str(rec['viewer_count']), inline=True)
+        if 'user_id' in record:  # user_id field is only on streams, not users
+            description = record['title']
+            myembed = discord.Embed(title=record['user_name'] + " is online for " +
+                                    await self.streamtime(await self.getrectime(record)) + "!",
+                                    url="https://twitch.tv/" + record['user_name'],
+                                    description=description)
+            myembed.add_field(name="Game: " + await self.getgame(record['game_id']),
+                              value="Viewers: " + str(record['viewer_count']), inline=True)
             if showprev:
                 myembed.set_image(
-                    url=rec['thumbnail_url'].replace("{width}", "848").replace("{height}", "480") + "?msgtime=" + str(
+                    url=record['thumbnail_url'].replace("{width}", "848").replace("{height}",
+                                                                                  "480") + "?msgtime=" + str(
                         int(time.time())))
         else:  # We have a user record, due to an offline stream.
-            description = rec['description'][:150]
-            myembed = discord.Embed(title=rec['display_name'] + " is not currently streaming.", description=description)
-            myembed.add_field(name="Viewers:", value=rec['view_count'])
-            myembed.set_thumbnail(url=rec['profile_image_url'])
+            description = record['description'][:150]
+            myembed = discord.Embed(title=record['display_name'] + " is not currently streaming.",
+                                    description=description)
+            myembed.add_field(name="Viewers:", value=record['view_count'])
+            myembed.set_thumbnail(url=record['profile_image_url'])
         return myembed
