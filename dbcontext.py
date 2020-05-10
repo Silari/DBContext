@@ -671,6 +671,11 @@ async def managehandler(command, message):
             await message.channel.send(
                 "Unable to create/find the necessary role. Please ensure the bot has the manage_roles permission.")
             return
+        # Check if role is assignable by the bot.
+        if message.guild.me.top_role.position < notifyrole.position:
+            await message.channel.send("Notify role position is higher than the bots highest role. Please move the "
+                                       "notify role below the " + message.guild.me.top_role.name + " role.")
+            return
         # Step 2 - Check if we already are on
         if message.guild.id in mydata['notifyserver']:  # Is notify on?
             msg = "Notifications have already been enabled on this server."
@@ -902,6 +907,13 @@ async def debughandler(command, message):
             else:
                 print(guild.name, "No role")
         return
+    elif command[0] == 'testtop':
+        msg = "Roles:"
+        for myrole in message.guild.me.roles:
+            msg += " Name: " + myrole.name + " Position:" + str(myrole.position)
+        print(msg)
+        msg = "Top Role: " + message.guild.me.top_role.name + " " + str(message.guild.me.top_role.position)
+        print(msg)
 
 
 newcontext("debug", debughandler, {})
