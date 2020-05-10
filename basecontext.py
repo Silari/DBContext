@@ -738,7 +738,7 @@ class APIContext:
             # If we don't have a saved message, we can't update. May be deleted.
             # May not have been announced.
             if not msgid:
-                return
+                continue
             # Get the options set for type of message, and if messages are edited
             typeopt = await self.getoption(server, "Type", recid)
             msgopt = await self.getoption(server, "MSG", recid)
