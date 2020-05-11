@@ -647,6 +647,7 @@ async def managehandler(command, message):
                 pass  # If we don't have permission to unpin, ignore it.
             except Exception as e:
                 print("notifyoff", repr(e))  # For debugging log any other error
+            # Remove the dict entries for this server.
             mydata["notifymsg"].pop(mydata['notifyserver'].pop(message.guild.id))
             msg = "Notification system has been disabled."
             if unpinned:
@@ -667,7 +668,8 @@ async def managehandler(command, message):
         notifyrole = await getnotifyrole(message.guild)
         if not notifyrole:  # We couldn't find the role, make it
             notifyrole = await makenotifyrole(message.guild)
-        if not notifyrole:  # We couldn't find or make the role
+        if not notifyrole:
+            # We couldn't find or make the role. We already checked for permissions, so this shouldn't happen, but JIC
             await message.channel.send(
                 "Unable to create/find the necessary role. Please ensure the bot has the manage_roles permission.")
             return
@@ -681,16 +683,27 @@ async def managehandler(command, message):
             msg = "Notifications have already been enabled on this server."
             savedmsgid = mydata['notifyserver'][message.guild.id]
             foundmsg = await findmsg(message.guild, savedmsgid, message.channel)
-            if foundmsg:
+            if foundmsg:  # The old reaction message still exists.
                 msg += " Reaction message is at " + foundmsg.jump_url
-            else:
-                msg += "Unable to find the reaction message. You may need to toggle notify off and back on again to " \
-                       "create a new one! "
-            if notifyrole.id != mydata['notifymsg'][savedmsgid]:
-                mydata['notifymsg'][savedmsgid] = notifyrole.id
-                msg += " The stored notify role ID did not match the found role. It has been reset."
-            await message.channel.send(msg)
-            return
+                # Check if the notifyrole id has changed. Might happen if recreated by a user or the bot.
+                if notifyrole.id != mydata['notifymsg'][savedmsgid]:
+                    mydata['notifymsg'][savedmsgid] = notifyrole.id
+                    msg += " . The stored notify role ID did not match the found role. It has been reset."
+                await message.channel.send(msg)
+                if not foundmsg.pinned:  # Try to pin the message if it isn't.
+                    try:
+                        await foundmsg.pin()
+                    except discord.Forbidden:
+                        pass
+                return
+            # Notify system should be on, but the message is gone, so we're going to reactivate it.
+            try:  # At this point we need to clean up the old remnants, cause we're going to redo everything.
+                del mydata['notifyserver'][message.guild.id]  # This one must exist, we used it above.
+                # This one SHOULD exist, and needs to be removed as that ID is invalid and we don't want to leave junk.
+                del mydata['notifymsg'][savedmsgid]
+            except KeyError:
+                pass
+        # If notifyon was already on, the message was removed (or unfindable) so we just treat it like it was off.
         # Step 3 - Send message to channel with info, request it be pinned/try to pin it?
         sentmsg = await message.channel.send(
             "Notifications are enabled for this server. To receive a notification when stream announcements are set, "
