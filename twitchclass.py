@@ -45,6 +45,85 @@ def getstream(recordid):
         return False
 
 
+class TwitchRecord(basecontext.StreamRecord):
+    # TODO Should be done. May need to rewrite the updater to grab the stream specific stuff for any new streams.
+    #  I think I can condense them all to one call anyway, and with the update system I won't need to recall it again
+    #  for anything.
+    # TODO Similar to piczel, I shouldn't have to make a call for the detailed embed anymore if the stream is online.
+
+    values = []
+    # Online keys (Stream record)
+    # values2 = ['game_id', 'id', 'language', 'started_at', 'thumbnail_url',
+    #            'title', 'type', 'user_id', 'user_name', 'viewer_count']
+    # Offline keys (User record)
+    # values3 = ['broadcaster_type', 'description', 'display_name', 'email', 'id', 'login',
+    #            'offline_image_url', 'profile_image_url', 'type', 'view_count']
+
+    # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
+    upvalues = []  # viewer_count manually updated
+
+    def __init__(self, recdict, detailed=False):
+        super().__init__(recdict, detailed)
+        self.internal['multistream'] = []
+        if detailed:  # Is a user record rather than a stream record.
+            self.internal['avatar'] = recdict['profile_image_url']
+            self.internal['name'] = recdict['display_name']
+            self.internal['online'] = False
+            self.internal['viewers_total'] = recdict['view_count']
+            self.internal['title'] = recdict['description']
+        else:
+            self.internal['name'] = recdict['user_name']
+            self.internal['online'] = True
+            self.internal['preview'] = recdict['thumbnail_url'].replace("{width}", "848").replace("{height}", "480")
+            self.internal['time'] = datetime.datetime.strptime(recdict['started_at'], "%Y-%m-%dT%H:%M:%SZ")
+            self.internal['title'] = recdict['title']
+            self.internal['viewers'] = recdict['viewer_count']
+            self.internal['game_id'] = recdict['game_id']  # Specific to Twitch.
+
+    def update(self, newdict):
+        # self.internal.update({k: newdict[k] for k in self.upvalues})
+        self.internal['viewers'] = newdict['viewer_count']
+        self.internal['game_id'] = newdict['game_id']
+
+    @property
+    def adult(self):
+        """Is the stream marked Adult?
+
+        :rtype: bool
+        """
+        return False
+
+    @property
+    def avatar(self):
+        """URL for the avatar of the stream.
+
+        :rtype: str
+        """
+        try:
+            return self.internal['avatar']
+        except KeyError:
+            return ''
+
+    @property
+    def gaming(self):
+        """Is the stream set as a gaming stream?
+
+        :rtype: bool
+        """
+        return True
+
+    @property
+    def preview(self):
+        """URL for the stream preview. We add a time property to the end to get around caching.
+
+        :rtype: str
+        """
+        try:
+            return self.internal['preview'] + "?msgtime=" + str(int(time.time()))
+        except KeyError:
+            return ''
+
+
 class TwitchContext(basecontext.APIContext):
     defaultname = "twitch"  # This is used to name this context and is the command
     streamurl = "https://twitch.tv/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(rec)) generally
@@ -336,6 +415,6 @@ class TwitchContext(basecontext.APIContext):
             description = record['description'][:150]
             myembed = discord.Embed(title=record['display_name'] + " is not currently streaming.",
                                     description=description)
-            myembed.add_field(name="Viewers:", value=record['view_count'])
+            myembed.add_field(name="Total Views:", value=record['view_count'])
             myembed.set_thumbnail(url=record['profile_image_url'])
         return myembed

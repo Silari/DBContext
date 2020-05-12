@@ -34,6 +34,30 @@ def getstream(recordid):
         return False
 
 
+class PicartoRecord(basecontext.StreamRecord):
+
+    values = ['adult', 'avatar', 'gaming', 'multistream', 'name',
+              'online', 'title', 'viewers_total', 'viewers']
+    # Keys that are present in a Picarto stream. We don't currently need most of these.
+    # values2 = ['user_id', 'name', 'avatar', 'online', 'viewers', 'viewers_total', 'thumbnails', 'followers',
+    #            'subscribers', 'adult', 'category', 'account_type', 'commissions', 'recordings', 'title',
+    #            'description_panels', 'private', 'private_message', 'gaming', 'chat_settings', 'last_live', 'tags',
+    #            'multistream', 'languages', 'following']
+    # The first item in multistream is the host.
+
+    def __init__(self, recdict, detailed=False):
+        super().__init__(recdict, detailed)
+        self.internal['preview'] = recdict['thumbnails']['web']
+        try:
+            # Time the stream began. Only detailed records from agetstream have this tag.
+            # print("getrectime",record)
+            self.internal['time'] = datetime.datetime.strptime(''.join(self.internal['last_live'].rsplit(':', 1)),
+                                                               '%Y-%m-%dT%H:%M:%S%z')
+        except KeyError:  # ONLY detailed records have last_live.
+            # If the API changes to include it, this'll work as is to use it.
+            self.internal['time'] = datetime.datetime.now(datetime.timezone.utc)
+
+
 class PicartoContext(basecontext.APIContext):
     defaultname = "picarto"  # This is used to name this context and is the command to call it. Must be unique.
     streamurl = "https://picarto.tv/{0}"  # URL for going to watch the stream

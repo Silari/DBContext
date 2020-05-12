@@ -44,6 +44,78 @@ def getstream(recordid):
         return False
 
 
+class PiczelRecord(basecontext.StreamRecord):
+
+    values = ['adult', 'title', 'viewers']
+    # Piczel keys for online/offline streams. DBMulti is only present if in_multi is True. Contains addl PiczelRecords
+    # values2 = ['DBMulti', 'adult', 'banner', 'banner_link', 'description', 'follower_count', 'id', 'in_multi',
+    #            'isPrivate?', 'live', 'live_since', 'offline_image', 'parent_streamer', 'preview', 'recordings',
+    #            'rendered_description', 'settings', 'slug', 'tags', 'title', 'user', 'username', 'viewers']
+
+    upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
+
+    def __init__(self, recdict, detailed=False):
+        super().__init__(recdict, detailed)
+        self.internal['avatar'] = recdict['user']['avatar']
+        self.internal['name'] = recdict['username']
+        self.internal['online'] = recdict['live']
+        self.internal['preview'] = recdict['id']
+        self.internal['time'] = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")
+        self.internal['viewers_total'] = recdict['follower_count']
+        if recdict['in_multi']:
+            if detailed:  # We need to setup our multistream data. It's expensive so we don't bother unless we need to.
+                multi = []
+                for stream in recdict['DBMulti'][1:]:  # First record is a copy of our record, ignore that.
+                    if stream['live']:
+                        # user_id, name, online, adult
+                        multi.append({'name': stream['username'],
+                                      'online': True,
+                                      'user_id': stream['id'],
+                                      'adult': stream['adult']})
+                self.internal['multistream'] = multi  # If no one else is online this is empty and multistream is False
+            else:
+                # This is True even if all the other streams are offline. Less accurate than the old method, but still
+                # comparable to how the PicartoRecord works.
+                self.internal['multistream'] = [True]
+        else:
+            self.internal['multistream'] = []
+
+    def update(self, newdict):
+        super().update(newdict)
+        if newdict['in_multi']:
+            self.internal['multistream'] = [True]
+        else:
+            self.internal['multistream'] = []
+        # self.internal['online'] = newdict['live']
+
+    @property
+    def gaming(self):
+        """Is the stream set as a gaming stream?
+
+        :rtype: bool
+        """
+        return False
+
+    @property
+    def preview(self):
+        """URL for the stream preview. We add a time property to the end to get around caching.
+
+        :rtype: str
+        """
+        return 'https://piczel.tv/static/thumbnail/stream_' + str(self.internal['id']) + '.jpg' + "?msgtime=" + str(
+            int(time.time()))
+
+    @property
+    def total_views(self):
+        """Total number of people who haved viewed the stream, or a similar overview of how popular the stream is. For
+        piczel, this is the follower count instead, as they don't track total views.
+
+        :rtype: tuple[str, int]
+        :return: A tuple with a string describing what we're counting, and an integer with the count.
+        """
+        return "Followers:", self.internal['viewers_total']
+
+
 class PiczelContext(basecontext.APIContext):
     defaultname = "piczel"  # This is used to name this context and is the command to call it. Must be unique.
     streamurl = "http://piczel.tv/watch/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(record))
@@ -204,6 +276,8 @@ class PiczelContext(basecontext.APIContext):
         :param showprev: Should the embed include the preview image?
         :return: a discord.Embed representing the current stream.
         """
+        # TODO Do I need to grab a detailed record for piczel if I already have it in the online streams? I don't think
+        #  there is anything actually different with the data given by agetstream.
         # This generates the embed to send when detailed info about a stream is
         # requested. The actual message is handled by basecontext's detailannounce
         description = record['title']

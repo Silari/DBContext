@@ -18,7 +18,8 @@ import aiohttp  # Should be used for any HTTP requests, NOT urllib!
 import json  # Useful for interpreting json from API requests.
 import asyncio  # Useful for asyncio.sleep - do NOT use the time.sleep method!
 import traceback  # For exception finding.
-import datetime  # For stream duration calculation
+import datetime  # For stream duration calculation.
+import time  # Used to add a time stamp to images to avoid caches.
 
 
 class Updated:
@@ -48,6 +49,122 @@ offlinetime = 600  # How many seconds to wait before declaring a stream offline
 class ChannelNotSet(discord.DiscordException):
     """Exception to use when a server does not have an announcement channel set, but it is explicitly required."""
     pass
+
+
+class StreamRecord:
+    """Class that encapsulates a record from a stream."""
+
+    # List of values to retain from the starting dictionary.
+    values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',
+              'preview', 'time', 'title', 'viewers_total', 'viewers']
+    # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
+    upvalues = ['adult', 'gaming', 'multistream', 'viewers']
+
+    # TODO I based all of these on agetstream return, while the check for online may be different. Twitch should be fine
+
+    def __init__(self, recdict, detailed=False):
+        self.internal = {k: recdict[k] for k in self.values}
+        self.internal['detailed'] = detailed
+
+    def update(self, newdict):
+        self.internal.update({k: newdict[k] for k in self.upvalues})
+
+    @property
+    def adult(self):
+        """Is the stream marked Adult?
+
+        :rtype: bool
+        """
+        return self.internal['adult']
+
+    @property
+    def avatar(self):
+        """URL for the avatar of the stream.
+
+        :rtype: str
+        """
+        return self.internal['avatar']
+
+    @property
+    def gaming(self):
+        """Is the stream set as a gaming stream?
+
+        :rtype: bool
+        """
+        return self.internal['gaming']
+
+    @property
+    def multistream(self):
+        """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
+        list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
+
+        :return: Returns an empty list if no multi, otherwise list contains dict items
+        :rtype: list
+        """
+        return [x for x in self.internal['multistream'] if x['name'] != self.name]
+
+    @property
+    def name(self):
+        """Name of the stream.
+
+        :rtype: str
+        """
+        return self.internal['name']
+
+    @property
+    def online(self):
+        """Is the stream online?
+
+        :rtype: bool
+        """
+        return self.internal['online']
+
+    @property
+    def preview(self):
+        """URL for the stream preview. We add a time property to the end to get around caching.
+
+        :rtype: str
+        """
+        return self.internal['preview'] + "?msgtime=" + str(int(time.time()))
+
+    @property
+    def time(self):
+        """Length of time the stream has been running. internal['time'] must be a datetime.datetime which is used to
+        calculate the stream length.
+
+        :rtype: datetime.timedelta
+        """
+        try:
+            return datetime.datetime.now(datetime.timezone.utc) - self.internal['time']
+        except KeyError:
+            pass
+        return datetime.timedelta()
+
+    @property
+    def title(self):
+        """Channel title/description.
+
+        :rtype: str
+        """
+        return self.internal['title']
+
+    @property
+    def total_views(self):
+        """Total number of people who haved viewed the stream, or a similar overview of how popular the stream is. For
+        piczel, this is the follower count instead, as they don't track total views.
+
+        :rtype: tuple[str, int]
+        :return: A tuple with a string describing what we're counting, and an integer with the count.
+        """
+        return "Total views:", self.internal['viewers_total']
+
+    @property
+    def viewers(self):
+        """Number of people viewing the stream.
+
+        :rtype: int
+        """
+        return self.internal['viewers']
 
 
 class APIContext:
@@ -700,6 +817,8 @@ class APIContext:
            that info. This should handle the actual work portion of updating,
            with the wrapper merely ensuring that this is called and that errors
            are caught safely, without prematurely exiting the task."""
+        # TODO Need to rewrite all of this to make use of records. I want to KEEP the old ones and just run the update
+        #  function with the new record, instead of replacing the whole dict.
         if not self.client.is_closed():  # Don't run if client is closed.
             mydata = self.mydata  # Ease of use and speed reasons
             oldlist = self.parsed  # Keep a reference to the old list
