@@ -56,26 +56,26 @@ class PiczelRecord(basecontext.StreamRecord):
 
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
-        self.internal['avatar'] = recdict['user']['avatar']
+        self.internal['avatar'] = recdict['user']['avatar']['url']
         self.internal['name'] = recdict['username']
         self.internal['online'] = recdict['live']
         self.internal['preview'] = recdict['id']
         self.internal['time'] = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")
         self.internal['viewers_total'] = recdict['follower_count']
         if recdict['in_multi']:
-            if detailed:  # We need to setup our multistream data. It's expensive so we don't bother unless we need to.
+            if detailed:  # We need to setup our multistream data. Only available in a detailed record.
                 multi = []
                 for stream in recdict['DBMulti'][1:]:  # First record is a copy of our record, ignore that.
                     if stream['live']:
-                        # user_id, name, online, adult
+                        # Trimming record down to just user_id, name, online, adult, same as what's in picarto.
+                        # Normally these contain cyclic references to the other streams in their 'DBMulti' attributes,
+                        # which makes these very weird. Removing all the unneeded stuff saves a lot of space.
                         multi.append({'name': stream['username'],
                                       'online': True,
                                       'user_id': stream['id'],
                                       'adult': stream['adult']})
                 self.internal['multistream'] = multi  # If no one else is online this is empty and multistream is False
             else:
-                # This is True even if all the other streams are offline. Less accurate than the old method, but still
-                # comparable to how the PicartoRecord works.
                 self.internal['multistream'] = [True]
         else:
             self.internal['multistream'] = []
@@ -276,14 +276,12 @@ class PiczelContext(basecontext.APIContext):
         :param showprev: Should the embed include the preview image?
         :return: a discord.Embed representing the current stream.
         """
-        # TODO Do I need to grab a detailed record for piczel if I already have it in the online streams? I don't think
-        #  there is anything actually different with the data given by agetstream.
         # This generates the embed to send when detailed info about a stream is
         # requested. The actual message is handled by basecontext's detailannounce
         description = record['title']
         multstring = ""
-        # If the stream is in a multi, we need to assemble the string that says
-        # who they are multistreaming with.
+        # If the stream is in a multi, we need to assemble the string that says who they are multistreaming with. This
+        # is only available in a detailed record.
         if record["in_multi"]:
             # Pare down the list to those who are currently online
             online = list((x for x in record['DBMulti'] if x["live"]))
