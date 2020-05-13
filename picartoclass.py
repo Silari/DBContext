@@ -36,8 +36,8 @@ def getstream(recordid):
 
 class PicartoRecord(basecontext.StreamRecord):
 
-    values = ['adult', 'avatar', 'gaming', 'multistream', 'name',
-              'online', 'title', 'viewers_total', 'viewers']
+    values = ['adult', 'gaming', 'multistream', 'name',
+              'title', 'viewers']
     # Keys that are present in a Picarto stream. We don't currently need most of these.
     # values2 = ['user_id', 'name', 'avatar', 'online', 'viewers', 'viewers_total', 'thumbnails', 'followers',
     #            'subscribers', 'adult', 'category', 'account_type', 'commissions', 'recordings', 'title',
@@ -48,14 +48,17 @@ class PicartoRecord(basecontext.StreamRecord):
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
         self.internal['preview'] = recdict['thumbnails']['web']
-        try:
-            # Time the stream began. Only detailed records from agetstream have this tag.
-            # print("getrectime",record)
-            self.internal['time'] = datetime.datetime.strptime(''.join(self.internal['last_live'].rsplit(':', 1)),
+        if detailed:
+            self.internal['online'] = recdict['online']
+            self.internal['time'] = datetime.datetime.strptime(''.join(recdict['last_live'].rsplit(':', 1)),
                                                                '%Y-%m-%dT%H:%M:%S%z')
-        except KeyError:  # ONLY detailed records have last_live.
-            # If the API changes to include it, this'll work as is to use it.
+            self.internal['avatar'] = recdict['avatar']
+            self.internal['viewers_total'] = recdict['viewers_total']
+        else:
             self.internal['time'] = datetime.datetime.now(datetime.timezone.utc)
+            self.internal['avatar'] = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault" \
+                                                                                                         ".jpg "
+            self.internal['online'] = True
 
 
 class PicartoContext(basecontext.APIContext):

@@ -52,6 +52,7 @@ class PiczelRecord(basecontext.StreamRecord):
     #            'isPrivate?', 'live', 'live_since', 'offline_image', 'parent_streamer', 'preview', 'recordings',
     #            'rendered_description', 'settings', 'slug', 'tags', 'title', 'user', 'username', 'viewers']
 
+    # TODO If the stream is online and not in a multi, we don't need to grab the channel record. We have everything else
     upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
 
     def __init__(self, recdict, detailed=False):
@@ -60,7 +61,9 @@ class PiczelRecord(basecontext.StreamRecord):
         self.internal['name'] = recdict['username']
         self.internal['online'] = recdict['live']
         self.internal['preview'] = recdict['id']
-        self.internal['time'] = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")
+        # Time is in UTC, convert to a datetime and specify that it's UTC.
+        self.internal['time'] = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")\
+            .replace(tzinfo=datetime.timezone.utc)
         self.internal['viewers_total'] = recdict['follower_count']
         if recdict['in_multi']:
             if detailed:  # We need to setup our multistream data. Only available in a detailed record.
@@ -86,15 +89,28 @@ class PiczelRecord(basecontext.StreamRecord):
             self.internal['multistream'] = [True]
         else:
             self.internal['multistream'] = []
+        # We'll never call this unless the stream is live. Offline only happens when a detailed record is created.
         # self.internal['online'] = newdict['live']
 
     @property
     def gaming(self):
-        """Is the stream set as a gaming stream?
+        """Is the stream set as a gaming stream? Not supported by Piczel.
 
         :rtype: bool
         """
         return False
+
+    @property
+    def otherstreams(self):
+        """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
+        list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
+
+        :return: Returns an empty list if no multi, otherwise list contains dict items
+        :rtype: list
+        """
+        if self.internal['detailed']:
+            return self.internal['multistream']
+        return []
 
     @property
     def preview(self):
@@ -102,7 +118,7 @@ class PiczelRecord(basecontext.StreamRecord):
 
         :rtype: str
         """
-        return 'https://piczel.tv/static/thumbnail/stream_' + str(self.internal['id']) + '.jpg' + "?msgtime=" + str(
+        return 'https://piczel.tv/static/thumbnail/stream_' + str(self.internal['preview']) + '.jpg' + "?msgtime=" + str(
             int(time.time()))
 
     @property

@@ -55,6 +55,7 @@ class StreamRecord:
     """Class that encapsulates a record from a stream."""
 
     # List of values to retain from the starting dictionary.
+    # Generally subclasses are going to overwrite this, but this is a basic list of what we generally expect to exist.
     values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',
               'preview', 'time', 'title', 'viewers_total', 'viewers']
     # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
@@ -95,13 +96,24 @@ class StreamRecord:
 
     @property
     def multistream(self):
+        """Is the stream a multistream?
+
+        :return: Returns True if stream is an a multistream, otherwise False.
+        :rtype: bool
+        """
+        return bool(self.internal['multistream'])
+
+    @property
+    def otherstreams(self):
         """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
         list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
 
         :return: Returns an empty list if no multi, otherwise list contains dict items
         :rtype: list
         """
-        return [x for x in self.internal['multistream'] if x['name'] != self.name]
+        if self.internal['detailed']:
+            return [x for x in self.internal['multistream'] if x['name'] != self.name]
+        return []
 
     @property
     def name(self):

@@ -49,7 +49,7 @@ class TwitchRecord(basecontext.StreamRecord):
     # TODO Should be done. May need to rewrite the updater to grab the stream specific stuff for any new streams.
     #  I think I can condense them all to one call anyway, and with the update system I won't need to recall it again
     #  for anything.
-    # TODO Similar to piczel, I shouldn't have to make a call for the detailed embed anymore if the stream is online.
+    # TODO I shouldn't have to make a call for the detailed embed anymore if the stream is online.
 
     values = []
     # Online keys (Stream record)
@@ -62,10 +62,10 @@ class TwitchRecord(basecontext.StreamRecord):
     # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
     upvalues = []  # viewer_count manually updated
 
-    def __init__(self, recdict, detailed=False):
-        super().__init__(recdict, detailed)
+    def __init__(self, recdict, detailed=True):  # No detailed version of a record here.
+        super().__init__(recdict, True)
         self.internal['multistream'] = []
-        if detailed:  # Is a user record rather than a stream record.
+        if 'view_count' in recdict:  # Is a user record rather than a stream record.
             self.internal['avatar'] = recdict['profile_image_url']
             self.internal['name'] = recdict['display_name']
             self.internal['online'] = False
@@ -75,7 +75,8 @@ class TwitchRecord(basecontext.StreamRecord):
             self.internal['name'] = recdict['user_name']
             self.internal['online'] = True
             self.internal['preview'] = recdict['thumbnail_url'].replace("{width}", "848").replace("{height}", "480")
-            self.internal['time'] = datetime.datetime.strptime(recdict['started_at'], "%Y-%m-%dT%H:%M:%SZ")
+            self.internal['time'] = datetime.datetime.strptime(recdict['started_at'], "%Y-%m-%dT%H:%M:%SZ")\
+                .replace(tzinfo=datetime.timezone.utc)
             self.internal['title'] = recdict['title']
             self.internal['viewers'] = recdict['viewer_count']
             self.internal['game_id'] = recdict['game_id']  # Specific to Twitch.
