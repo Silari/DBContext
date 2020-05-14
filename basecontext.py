@@ -187,27 +187,29 @@ class StreamRecord:
         """
         return self.internal['viewers']
 
-    async def streammsg(self, snowflake, offline=False):
+    async def streammsg(self, snowflake, offset=False):
         """Function to generate a string to say how long stream has lasted.
 
         :type snowflake: int
-        :type offline: bool
+        :type offset: bool
         :rtype: str
         :param snowflake: Integer representing a discord Snowflake
-        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :param offset: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a string stating the time the stream has ran for.
         """
         # Find the duration of the stream.
         dur = await APIContext.longertime(snowflake, self.time)
         # If stream is offline, we adjust the time to account for the waiting
         # period before we marked it offline.
-        if offline:
+        if offset:
             timestr = await APIContext.streamtime(dur, offlinewait)
-            retstr = "Stream lasted for "
         else:
             # Online streams need no adjustement.
             timestr = await APIContext.streamtime(dur)
+        if self.online:
             retstr = "Stream running for "
+        else:
+            retstr = "Stream lasted for "
         retstr += timestr
         return retstr
 
@@ -944,7 +946,7 @@ class APIContext:
                             if record:
                                 # We use oldest id to get the longest possible time this stream ran
                                 # This matches how updatemsg sets the time.
-                                newembed['title'] = await record.streammsg(oldestid, offline=True)
+                                newembed['title'] = await record.streammsg(oldestid, offset=True)
                             # If we don't, this is an offline edit. We can't get
                             # the time stream ran for, so just edit the current
                             # stored time and use that.

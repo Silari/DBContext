@@ -76,7 +76,7 @@ class PicartoRecord(basecontext.StreamRecord):
         if not snowflake:
             embtitle = self.name + " has come online!"
         else:
-            embtitle = await self.streammsg(snowflake, offline)
+            embtitle = await self.streammsg(snowflake, offset=offline)
         noprev = discord.Embed(title=embtitle, url=PicartoContext.streamurl.format(self.name), description=description)
         noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
                          value="Gaming: " + ("Yes" if self.gaming else "No"),

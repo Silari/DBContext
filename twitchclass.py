@@ -157,7 +157,7 @@ class TwitchRecord(basecontext.StreamRecord):
         if not snowflake:
             embtitle = self.name + " has come online!"
         else:
-            embtitle = await self.streammsg(snowflake, offline)
+            embtitle = await self.streammsg(snowflake, offset=offline)
         noprev = discord.Embed(title=embtitle, url="https://twitch.tv/" + self.name, description=description)
         noprev.add_field(name="Game: " + await self.getgame(self.internal['game_id']),
                          value="Viewers: " + str(self.viewers), inline=True)
