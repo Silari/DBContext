@@ -114,37 +114,3 @@ class TemplateContext(basecontext.APIContext):
         # Generally, record['name'] or possibly record['id']. Used to store info about
         # the stream, such as who is watching and track announcement messages.
         return record['name']
-
-    async def getrectime(self, record):
-        """Time that a stream has ran, determined from the API data."""
-        # If the API returns any kind of data about stream length, it should go
-        # here. The following works as a default return, as it's only ever used
-        # in a max function with the time since the message was made. Some streams
-        # use it in the detail embed as well, so you may want it there too.
-        # Default return, duration of 0 seconds. It is safe to delete this
-        # function, as basecontext has a working version.
-        began = record['started_at']
-        return datetime.datetime.now(datetime.timezone.utc) - began
-
-    # The embed used by the default message type. Same as the simple embed except
-    # that we add on a preview of the stream.
-    async def makeembed(self, record, snowflake=None, offline=False):
-        # You can remove this function and baseclass will just use the simpembed
-        # Simple embed is the same, we just need to add a preview image. Save code
-        myembed = await self.simpembed(record)
-        # The msgtime parameter added to the end helps avoid Discord's overly long caching feature.
-        myembed.set_image(url='' + "?msgtime=" + str(int(time.time())))  # Add your image here
-        return myembed
-
-    # The embed used by the noprev option message. This is general information
-    # about the stream - just the most important bits. Users can get a more
-    # detailed version using the detail command.
-    async def simpembed(self, record, snowflake=None, offline=False):
-        noprev = discord.Embed(title='')
-        return noprev
-
-    async def makedetailembed(self, record, snowflake=None, offline=False):
-        # This generates the embed to send when detailed info about a channel is
-        # requested. The actual message is handled by basecontext's detailannounce
-        myembed = discord.Embed(title='')
-        return myembed
