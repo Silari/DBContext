@@ -1044,7 +1044,7 @@ class APIContext:
                     else:
                         # Default stream type, full embed with preview
                         sentmsg = await channel.send(notemsg + msg, embed=myembed)
-                    if notifyrole and revert:  # We need to revert the mentionable change
+                    if revert:  # We need to revert the mentionable change - we MUST have a notifyrole if this is true
                         try:
                             await notifyrole.edit(mentionable=False)
                         except discord.Forbidden:
