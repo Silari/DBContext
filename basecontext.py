@@ -88,6 +88,14 @@ class StreamRecord:
         return self.internal['avatar']
 
     @property
+    def detailed(self):
+        """Is the record a detailed record?
+
+        :rtype: bool
+        """
+        return self.internal['detailed']
+
+    @property
     def gaming(self):
         """Is the stream set as a gaming stream?
 
@@ -1174,10 +1182,14 @@ class APIContext:
         # We should only call this with a specific server to respond to
         if not oneserv:
             return
-        record = await self.agetstream(recordid)
         channel = await self.resolvechannel(oneserv, recordid)
         if not channel:
             raise ChannelNotSet()
+        # If we already have this record and it's a detailed record, use it instead.
+        if recordid in self.parsed and self.parsed[recordid].detailed:
+            record = self.parsed[recordid]
+        else:
+            record = await self.agetstream(recordid)
         # record is only none if the timeout was reached.
         if record is None:
             msg = "Timeout reached attempting API call; it is not responding. Please try again later."

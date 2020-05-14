@@ -52,7 +52,6 @@ class PiczelRecord(basecontext.StreamRecord):
     #            'isPrivate?', 'live', 'live_since', 'offline_image', 'parent_streamer', 'preview', 'recordings',
     #            'rendered_description', 'settings', 'slug', 'tags', 'title', 'user', 'username', 'viewers']
 
-    # TODO If the stream is online and not in a multi, we don't need to grab the channel record. We have everything else
     upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
 
     def __init__(self, recdict, detailed=False):
@@ -92,6 +91,18 @@ class PiczelRecord(basecontext.StreamRecord):
             self.internal['multistream'] = []
         # We'll never call this unless the stream is live. Offline only happens when a detailed record is created.
         # self.internal['online'] = newdict['live']
+
+    @property
+    def detailed(self):
+        """Is the record a detailed record?
+
+        :rtype: bool
+        """
+        # There's no difference between regular and detailed records unless they're a multistream.
+        if not self.multistream:
+            return True
+        # If it is a multistream, check if it was created as a detailed stream.
+        return self.internal['detailed']
 
     @property
     def gaming(self):
@@ -170,7 +181,8 @@ class PiczelRecord(basecontext.StreamRecord):
         """
         # This generates the embed to send when detailed info about a stream is
         # requested. The actual message is handled by basecontext's detailannounce
-        # TODO if not detailed, make this call makeembed if showprev, simpleembed if not
+        # TODO if not detailed, make this call makeembed if showprev, simpleembed if not. It SHOULDN'T be used but if it
+        #  is called at least it'll work.
         description = self.title
         multstring = ""
         # If the stream is in a multi, we need to assemble the string that says who they are multistreaming with. This

@@ -46,10 +46,6 @@ def getstream(recordid):
 
 
 class TwitchRecord(basecontext.StreamRecord):
-    # TODO Should be done. May need to rewrite the updater to grab the user record for any new streams.
-    #  Up to 100 can be in one call, same as streams, and with the update system I won't need to recall it again
-    #  for anything. That'd give ALL the info for twitch streams.
-    # TODO I shouldn't have to make a call for the detailed embed anymore if the stream is online.
 
     values = []
     # Online keys (Stream record)
@@ -104,6 +100,15 @@ class TwitchRecord(basecontext.StreamRecord):
             return self.internal['avatar']
         except KeyError:
             return ''
+
+    @property
+    def detailed(self):
+        """Is the record a detailed record?
+
+        :rtype: bool
+        """
+        # There are no detailed records, just stream records (only if online) and user records.
+        return True
 
     @property
     def gaming(self):
@@ -232,6 +237,9 @@ class TwitchContext(basecontext.APIContext):
         :rtype: bool
         :return: True on success, False if any error occurs.
         """
+        # TODO Should be done. May need to rewrite the updater to grab the user record for any new streams.
+        #  Up to 100 can be in one call, same as streams, and with the update system I won't need to recall it again
+        #  for anything. That'd give ALL the info for twitch streams.
         # Twitch is different since you can't get all online streams - there's far
         # too many. Instead we only grab watched streams in groups.
         found = {}  # Used to hold the records from the API calls.

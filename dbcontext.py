@@ -6,7 +6,6 @@
 
 # TESTING NOTES
 
-# Todo:
 # notifyon notes
 # Optionally include a channel mention to ensure role has permission to view? Seems unneccessary.
 # Though I'm putting this message where the notifyon is given, so hey
