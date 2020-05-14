@@ -810,9 +810,9 @@ class APIContext:
 
     async def updatetask(self):
         """Updates the API information and performs any necessary tasks with
-           that info. This should handle the actual work portion of updating,
-           with the wrapper merely ensuring that this is called and that errors
-           are caught safely, without prematurely exiting the task.
+        that info. This should handle the actual work portion of updating,
+        with the wrapper merely ensuring that this is called and that errors
+        are caught safely, without prematurely exiting the task.
         """
         if not self.client.is_closed():  # Don't run if client is closed.
             mydata = self.mydata  # Ease of use and speed reasons
@@ -853,6 +853,7 @@ class APIContext:
                             # It's long enough that it's not a temporary disruption and send it to be removed.
                             # print("Removing",gone)
                             await self.removemsg(record)  # Need to potentially remove messages
+                            del self.parsed[gone]
                     else:
                         # Stream is newly offline, record the current time
                         record.offlinetime = curtime
