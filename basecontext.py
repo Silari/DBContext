@@ -1153,7 +1153,7 @@ class APIContext:
                     else:
                         # Default stream type, full embed with preview
                         sentmsg = await channel.send(notemsg + msg, embed=myembed)
-                    if notifyrole and revert:  # We need to revert the mentionable change
+                    if revert:  # We need to revert the mentionable change - we MUST have a notifyrole if this is true
                         try:
                             await notifyrole.edit(mentionable=False)
                         except discord.Forbidden:
@@ -1182,8 +1182,9 @@ class APIContext:
         # We should only call this with a specific server to respond to
         if not oneserv:
             return
+        # Check we have a channel FIRST, to avoid an unneeded API call.
         channel = await self.resolvechannel(oneserv, recordid)
-        if not channel:
+        if not channel:  # No channel was set, so we have nowhere to put the message.
             raise ChannelNotSet()
         # If we already have this record and it's a detailed record, use it instead.
         if recordid in self.parsed and self.parsed[recordid].detailed:
@@ -1287,270 +1288,27 @@ class APIContext:
                     msg = "No announcement channel has been set, please set one with listen."
                 await message.channel.send(msg)
                 return
-            elif command[0] == 'option':
-                if len(command) == 1:
-                    msg = "No option provided. Please use the help menu for info on how to use the option command."
-                    await message.channel.send(msg)
-                    return
-                msg = ""
-                setopt = set()
-                unknown = False
-                for newopt in command[1:]:
-                    newopt = newopt.lower()
-                    if newopt == 'clear':  # Clear all out options
-                        for group in ('Type', 'MSG', 'Adult', 'Notify'):
-                            await self.setoption(message.guild.id, group)
-                        setopt.add(newopt)
-                    elif newopt in ("default", "noprev", "simple"):
-                        await self.setoption(message.guild.id, "Type", newopt)
-                        setopt.add(newopt)
-                    elif newopt in ("delete", "edit", "static"):
-                        await self.setoption(message.guild.id, "MSG", newopt)
-                        setopt.add(newopt)
-                    elif newopt in ("showadult", "hideadult", "noadult"):
-                        await self.setoption(message.guild.id, "Adult", newopt)
-                        setopt.add(newopt)
-                    elif newopt in ("notify", "notifyoff"):
-                        if newopt == "notify":
-                            await self.setoption(message.guild.id, "Notify", None)
-                        else:
-                            await self.setoption(message.guild.id, "Notify", False)
-                    else:
-                        unknown = True
-                if setopt:
-                    msg += "Options set: " + ", ".join(setopt) + ". "
-                if unknown:
-                    msg += "One or more unknown options found. Please check the help menu for available options."
-                await message.channel.send(msg)
+            elif command[0] == 'option':  # Moved to function
+                await self.option(command, message)
                 return
-            # Similar to option, but sets it only for a single stream
-            elif command[0] == 'streamoption':
-                if len(command) < 2:
-                    msg = "Command requires a stream name, or a stream name and option(s). Please use the help menu " \
-                          "for info on how to use the streamoption command. "
-                    await message.channel.send(msg)
-                    return
-                # If we're not listening to it right now, don't set the override.
-                # This avoids mismatched capitalization from the user setting the
-                # override on the wrong name.
-                record = command[1]  # Name of stream
-                if not (message.guild.id in mydata["Servers"]
-                        and record in mydata["Servers"][message.guild.id]["Listens"]):
-                    msg = record + "is not in your list of watched streams. Check spelling and capitalization and " \
-                            "try again. "
-                    await message.channel.send(msg)
-                    return
-                if len(command) == 2:  # No options given, just show current options
-                    msg = "No overrides exist for the given stream."
-                    try:
-                        options = {}
-                        # Copy the Options from the override to here,
-                        # we need to make a slight edit
-                        options.update(mydata['COver'][message.guild.id][record]['Option'])
-                        # print("streamoption",options)
-                        if 'Channel' in options:
-                            foundchan = await self.resolvechannel(message.guild.id, channelid=options['Channel'])
-                            if foundchan:
-                                options['Channel'] = foundchan.mention
-                        msg = "\n".join([str(i[0]) + ": " + str(i[1]) for i in options.items()])
-                        msg = "The following overrides are set (Option: Setting) :\n" + msg
-                    except KeyError:
-                        pass
-                    await message.channel.send(msg)
-                    return
-                msg = ""
-                setopt = set()
-                unknown = False
-                for newopt in command[2:]:
-                    # Valid options are all lower case, or channel mentions, which have no
-                    # letters in them.
-                    newopt = newopt.lower()
-                    if newopt == 'clear':  # Clear all stream options
-                        try:
-                            del mydata['COver'][message.guild.id][record]
-                        except KeyError:
-                            pass
-                        setopt.add(newopt)
-                    # This is a channel mention, set the channel override
-                    elif newopt.startswith('<#') and newopt.endswith('>'):
-                        # Technically this might not be a valid channel if someone just types it up manually, though an
-                        # actual channel mention will always be a real channel, even if the bot can't necessarily see it
-                        await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
-                        setopt.add(newopt)
-                    elif newopt in ("default", "noprev", "simple"):
-                        await self.setstreamoption(message.guild.id, "Type", record, newopt)
-                        setopt.add(newopt)
-                    elif newopt in ("delete", "edit", "static"):
-                        await self.setstreamoption(message.guild.id, "MSG", record, newopt)
-                        setopt.add(newopt)
-                    elif newopt in ("showadult", "hideadult", "noadult"):
-                        await self.setstreamoption(message.guild.id, "Adult", record, newopt)
-                        setopt.add(newopt)
-                    elif newopt in ("notify", "notifyoff"):
-                        if newopt == "notify":
-                            await self.setstreamoption(message.guild.id, "Notify", record, None)
-                        else:
-                            await self.setstreamoption(message.guild.id, "Notify", record, False)
-                    else:
-                        # We had at least one unknown option
-                        unknown = True
-                if setopt:
-                    msg += "Options set: " + ", ".join(setopt) + ". "
-                if unknown:
-                    msg += "One or more unknown options found. Please check the help menu for available options."
-                await message.channel.send(msg)
+            elif command[0] == 'streamoption':  # Moved to function
+                await self.streamoption(command, message)
                 return
-            elif command[0] == 'list':
-                # List options and current list of watched streams
-                channel = await self.resolvechannel(message.guild.id)
-                if channel:
-                    msg = "I am currently announcing in " + channel.mention + "."
-                else:
-                    msg = "I am not currently set to announce streams in a channel. **Many commands will not work " \
-                          "unless this is set!** "
-                try:
-                    # Create list of watched streams, bolding online ones.
-                    newlist = []
-                    for item in mydata["Servers"][message.guild.id]["Listens"]:
-                        newitem = item
-                        if item in self.parsed:  # Stream is online
-                            newitem = "**" + item + "**"
-                        try:  # See if we have an override set, and add it if so.
-                            chan = await self.resolvechannel(message.guild.id,
-                                                channelid=mydata['COver'][message.guild.id][item]['Option']['Channel'])
-                            if chan:
-                                newitem += ":" + chan.mention
-                        except KeyError:
-                            pass  # We may not have an override set, so ignore it.
-                        newlist.append(newitem)
-                    newlist.sort()
-                    msg += " Announcing for (**online**) streamers: " + ", ".join(newlist)
-                except KeyError:  # If server doesn't even have a Listens, no watches
-                    msg += " No streams are currently set to be watched"
-                msg += ".\nAnnouncement type set to "
-                # Check our announcement type - default/noprev/simple.
-                atype = await self.getoption(message.guild.id, 'Type')
-                msg += atype + " and "
-                # Check our message type - edit/delete/static.
-                msgtype = await self.getoption(message.guild.id, 'MSG')
-                msg += msgtype + " messages."
-                # Do we show streams marked as adult? Not all streams support this
-                adult = await self.getoption(message.guild.id, 'Adult')
-                if adult == 'showadult':
-                    msg += " Adult streams are shown normally."
-                elif adult == 'hideadult':
-                    msg += " Adult streams are shown without previews."
-                elif adult == 'noadult':
-                    msg += " Adult streams will not be announced."
-                else:  # There's only 3 valid options, this shouldn't activate
-                    # But ya know JIC.
-                    msg += "**WARNING!** Unknown option set for Adult streams! Please reset the adult option!"
-                if not self.lastupdate:  # Note if the API update failed
-                    msg += "\n**Last " + str(self.lastupdate.failed) + " attempt(s) to update API failed.**"
-                if await self.getoption(message.guild.id, 'Stop'):
-                    msg += "\nMessages are currently stopped via the stop command."
-                await message.channel.send(msg)
+            elif command[0] == 'list':  # Moved to function
+                await self.list(command, message)
                 return
-            elif command[0] == 'announce':  # Reannounce any missing announcements
-                clive = 0  # Channels that are live
-                canno = 0  # Channels that were announced
-                # Iterate over all this servers' listens
-                if not (message.guild.id in mydata["Servers"] and
-                        "Listens" in mydata["Servers"][message.guild.id]):
-                    await message.channel.send("Server is not listening to any streams!")
-                    return
-                for item in mydata["Servers"][message.guild.id]["Listens"]:
-                    if item in self.parsed:  # Stream is online
-                        clive = clive + 1
-                        # Make sure we have a savedmsg, we're going to need it
-                        if not (message.guild.id in mydata['SavedMSG']):
-                            mydata['SavedMSG'][message.guild.id] = {}
-                        # Stream isn't listed, announce it
-                        if item not in mydata['SavedMSG'][message.guild.id]:
-                            # print("Announcing",item)
-                            await self.announce(self.parsed[item], message.guild.id)
-                            canno = canno + 1
-                msg = "Found " + str(clive) + " live stream(s), found " + str(
-                    canno) + " stream(s) that needed an announcement."
-                if await self.getoption(message.guild.id, 'Stop'):
-                    msg += "\nStop is currently enabled for this server - no announcements have been made. The " \
-                           "'resume' command must be used to re-enable announcements. "
-                if not self.lastupdate:  # Note if the API update failed
-                    msg += "\n**The last attempt to update API failed.** The API may be down. This will cause delays " \
-                           "in announcing streams. Streams will be announced/edited/removed as needed when the API " \
-                           "call succeeds. "
-                await message.channel.send(msg)
+            elif command[0] == 'announce':  # Moved to function
+                await self.announceall(command, message)
                 return
-            elif command[0] == 'add':
+            elif command[0] == 'add':  # Moved to function
                 await self.add(command, message)
                 return
-            elif command[0] == 'remove':
-                if not (message.guild.id in mydata["Servers"]):
-                    # Haven't created servers info dict yet
-                    await message.channel.send("No streams are being listened to yet!")
-                    return
-                if not ("Listens" in mydata["Servers"][message.guild.id]):
-                    # No listens added yet
-                    await message.channel.send("No streams are being listened to yet!")
-                    return
-                added = set()
-                msg = ""
-                notfound = set()
-                for newstream in command[1:]:
-                    # If the name ends with a comma, strip it off. This allows
-                    # to copy/paste the result of the list command into remove
-                    # to remove all those streams.
-                    if newstream.endswith(','):
-                        newstream = newstream[:-1]
-                    # print(newstream)
-                    try:
-                        mydata["AnnounceDict"][newstream].remove(message.guild.id)
-                        added.add(newstream)
-                        # If no one is watching that stream anymore, remove it
-                        if not mydata["AnnounceDict"][newstream]:
-                            mydata["AnnounceDict"].pop(newstream, None)
-                    except ValueError:
-                        notfound.add(newstream)
-                        pass  # Value not in list, don't worry about it
-                    except KeyError:
-                        notfound.add(newstream)
-                        pass  # Value not in list, don't worry about it
-                    try:
-                        mydata["Servers"][message.guild.id]["Listens"].remove(newstream)
-                    except ValueError:
-                        pass  # Value not in list, don't worry about it
-                    except KeyError:
-                        pass  # Value not in list, don't worry about it
-                    # If 'delete' option set, delete any announcement for that stream.
-                    if ("MSG" in mydata["Servers"][message.guild.id]) and (
-                            mydata["Servers"][message.guild.id]["MSG"] == "delete"):
-                        # This will delete announcement and clear savedmsg for us
-                        try:
-                            await self.removemsg(parsed[newstream], [message.guild.id])
-                        except KeyError:  # If stream not online, parsed won't have record.
-                            pass
-                    else:
-                        # We still need to remove any savedmsg we have for this stream.
-                        try:  # They might not have a message saved, ignore that
-                            del mydata['SavedMSG'][message.guild.id][newstream]
-                        except KeyError:
-                            pass
-                    # And remove any overrides for the stream
-                    try:
-                        del mydata['COver'][message.guild.id][command[1]]
-                    except KeyError:  # If any of those keys don't exist, it's fine
-                        pass  # Ignore it, because the override isn't set.
-                if added:
-                    msg += "Ok, I will no longer announce the following streamers: " + ", ".join(added)
-                if notfound:
-                    msg += "\nThe following streams were not found and could not be removed: " + ", ".join(notfound)
-                if not msg:
-                    msg += "Unable to remove any streams due to unknown error."
-                await message.channel.send(msg)
+            elif command[0] == 'remove':  # Moved to function
+                await self.remove(command, message)
                 return
             elif command[0] == 'detail':
                 if len(command) == 1:  # No stream given
-                    await message.channel.send("You need to specify a user!")
+                    await message.channel.send("You must specify a stream name to show the detailed record for.")
                 else:
                     try:
                         await self.detailannounce(command[1], message.guild.id)
@@ -1575,7 +1333,7 @@ class APIContext:
                     msg += "\nedit: default option. Viewers and other fields are updated periodically. Message is " \
                            "changed when stream is offline. "
                     msg += "\nstatic: messages are not edited or deleted ever."
-                    if self.name != 'twitch':
+                    if self.name != 'twitch':  # Twitch doesn't have adult settings, so ignore.
                         msg += "\nAdult stream options:"
                         msg += "\nshowadult: default option. Adult streams are shown normally."
                         msg += "\nhideadult: Adult streams are announced but not previewed."
@@ -1585,7 +1343,6 @@ class APIContext:
                                "streamers, API errors, bugs in the module, and old adult previews cached by the " \
                                "streaming site/discord/etc. may allow adult content through. "
                     await message.channel.send(msg)
-                    # msg += "\n"
             # The general help goes here - it should list commands or some site that
             # has a list of them
             else:
@@ -1617,7 +1374,11 @@ class APIContext:
             return
 
     async def add(self, command, message):
-        """Adds streams to the list of watched streams for a guild."""
+        """Adds streams to the list of watched streams for a guild.
+
+        :param command: Command list passed from handler
+        :param message: The discord.Message instance that invoked the handler.
+        """
         mydata = self.mydata
         if not (message.guild.id in mydata["Servers"]):
             # Haven't created servers info dict yet, make a dict.
@@ -1708,3 +1469,291 @@ class APIContext:
             msg += "\nYou must set an announcement channel via the channel command before announcements will work!"
         await message.channel.send(msg)
         return
+
+    async def list(self, command, message):
+        """List options and current list of watched streams
+
+        :param command: Command list passed from handler
+        :param message: The discord.Message instance that invoked the handler.
+        """
+        mydata = self.mydata
+        channel = await self.resolvechannel(message.guild.id)
+        if channel:
+            msg = "I am currently announcing in " + channel.mention + "."
+        else:
+            msg = "I am not currently set to announce streams in a channel. **Many commands will not work " \
+                  "unless this is set!** "
+        try:
+            # Create list of watched streams, bolding online ones.
+            newlist = []
+            for item in mydata["Servers"][message.guild.id]["Listens"]:
+                newitem = item
+                if item in self.parsed:  # Stream is online
+                    newitem = "**" + item + "**"
+                try:  # See if we have an override set, and add it if so.
+                    chan = await self.resolvechannel(message.guild.id,
+                                                     channelid=mydata['COver'][message.guild.id][item]
+                                                     ['Option']['Channel'])
+                    if chan:
+                        newitem += ":" + chan.mention
+                except KeyError:
+                    pass  # We may not have an override set, so ignore it.
+                newlist.append(newitem)
+            newlist.sort()
+            msg += " Announcing for (**online**) streamers: " + ", ".join(newlist)
+        except KeyError:  # If server doesn't even have a Listens, no watches
+            msg += " No streams are currently set to be watched"
+        msg += ".\nAnnouncement type set to "
+        # Check our announcement type - default/noprev/simple.
+        atype = await self.getoption(message.guild.id, 'Type')
+        msg += atype + " and "
+        # Check our message type - edit/delete/static.
+        msgtype = await self.getoption(message.guild.id, 'MSG')
+        msg += msgtype + " messages."
+        # Do we show streams marked as adult? Not all streams support this
+        adult = await self.getoption(message.guild.id, 'Adult')
+        if adult == 'showadult':
+            msg += " Adult streams are shown normally."
+        elif adult == 'hideadult':
+            msg += " Adult streams are shown without previews."
+        elif adult == 'noadult':
+            msg += " Adult streams will not be announced."
+        else:  # There's only 3 valid options, this shouldn't activate
+            # But ya know JIC.
+            msg += "**WARNING!** Unknown option set for Adult streams! Please reset the adult option!"
+        if not self.lastupdate:  # Note if the API update failed
+            msg += "\n**Last " + str(self.lastupdate.failed) + " attempt(s) to update API failed.**"
+        if await self.getoption(message.guild.id, 'Stop'):
+            msg += "\nMessages are currently stopped via the stop command."
+        await message.channel.send(msg)
+
+    async def option(self, command, message):
+        """Sets or clears one or more options for the server.
+
+        :param command: Command list passed from handler
+        :param message: The discord.Message instance that invoked the handler.
+        """
+        if len(command) == 1:
+            msg = "No option provided. Please use the help menu for info on how to use the option command."
+            await message.channel.send(msg)
+            return
+        msg = ""
+        setopt = set()
+        unknown = False
+        for newopt in command[1:]:
+            newopt = newopt.lower()
+            if newopt == 'clear':  # Clear all out options
+                for group in ('Type', 'MSG', 'Adult', 'Notify'):
+                    await self.setoption(message.guild.id, group)
+                setopt.add(newopt)
+            elif newopt in ("default", "noprev", "simple"):
+                await self.setoption(message.guild.id, "Type", newopt)
+                setopt.add(newopt)
+            elif newopt in ("delete", "edit", "static"):
+                await self.setoption(message.guild.id, "MSG", newopt)
+                setopt.add(newopt)
+            elif newopt in ("showadult", "hideadult", "noadult"):
+                await self.setoption(message.guild.id, "Adult", newopt)
+                setopt.add(newopt)
+            elif newopt in ("notify", "notifyoff"):
+                if newopt == "notify":
+                    await self.setoption(message.guild.id, "Notify", None)
+                else:
+                    await self.setoption(message.guild.id, "Notify", False)
+            else:
+                unknown = True
+        if setopt:
+            msg += "Options set: " + ", ".join(setopt) + ". "
+        if unknown:
+            msg += "One or more unknown options found. Please check the help menu for available options."
+        await message.channel.send(msg)
+
+    async def streamoption(self, command, message):
+        """Sets or clears one or more options for a single watched stream in the server. If no options are given, it
+        shows the currently set options for the given stream.
+
+        :param command: Command list passed from handler
+        :param message: The discord.Message instance that invoked the handler.
+        """
+        mydata = self.mydata
+        if len(command) < 2:
+            msg = "Command requires a stream name, or a stream name and option(s). Please use the help menu " \
+                  "for info on how to use the streamoption command. "
+            await message.channel.send(msg)
+            return
+        # If we're not listening to it right now, don't set the override.
+        # This avoids mismatched capitalization from the user setting the
+        # override on the wrong name.
+        record = command[1]  # Name of stream
+        if not (message.guild.id in mydata["Servers"]
+                and record in mydata["Servers"][message.guild.id]["Listens"]):
+            msg = record + "is not in your list of watched streams. Check spelling and capitalization and " \
+                           "try again. "
+            await message.channel.send(msg)
+            return
+        if len(command) == 2:  # No options given, just show current options
+            msg = "No overrides exist for the given stream; all options will default to the server wide settings."
+            try:
+                options = {}
+                # Copy the Options from the override to here,
+                # we need to make a slight edit
+                options.update(mydata['COver'][message.guild.id][record]['Option'])
+                # print("streamoption",options)
+                if 'Channel' in options:
+                    foundchan = await self.resolvechannel(message.guild.id, channelid=options['Channel'])
+                    if foundchan:
+                        options['Channel'] = foundchan.mention
+                msg = "\n".join([str(i[0]) + ": " + str(i[1]) for i in options.items()])
+                msg = "The following overrides are set (Option: Setting) :\n" + msg
+            except KeyError:
+                pass
+            await message.channel.send(msg)
+            return
+        msg = ""
+        setopt = set()
+        unknown = False
+        for newopt in command[2:]:
+            # Valid options are all lower case, or channel mentions, which have no
+            # letters in them.
+            newopt = newopt.lower()
+            if newopt == 'clear':  # Clear all stream options
+                try:
+                    del mydata['COver'][message.guild.id][record]
+                except KeyError:
+                    pass
+                setopt.add(newopt)
+            # This is a channel mention, set the channel override
+            elif newopt.startswith('<#') and newopt.endswith('>'):
+                # Technically this might not be a valid channel if someone just types it up manually, though an
+                # actual channel mention will always be a real channel, even if the bot can't necessarily see it
+                await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
+                setopt.add(newopt)
+            elif newopt in ("default", "noprev", "simple"):
+                await self.setstreamoption(message.guild.id, "Type", record, newopt)
+                setopt.add(newopt)
+            elif newopt in ("delete", "edit", "static"):
+                await self.setstreamoption(message.guild.id, "MSG", record, newopt)
+                setopt.add(newopt)
+            elif newopt in ("showadult", "hideadult", "noadult"):
+                await self.setstreamoption(message.guild.id, "Adult", record, newopt)
+                setopt.add(newopt)
+            elif newopt in ("notify", "notifyoff"):
+                if newopt == "notify":
+                    await self.setstreamoption(message.guild.id, "Notify", record, None)
+                else:
+                    await self.setstreamoption(message.guild.id, "Notify", record, False)
+            else:
+                # We had at least one unknown option
+                unknown = True
+        if setopt:
+            msg += "Options set: " + ", ".join(setopt) + ". "
+        if unknown:
+            msg += "One or more unknown options found. Please check the help menu for available options."
+        await message.channel.send(msg)
+
+    async def remove(self, command, message):
+        """Removes streams from the list of watched streams for a guild.
+
+        :param command: Command list passed from handler
+        :param message: The discord.Message instance that invoked the handler.
+        """
+        mydata = self.mydata
+        if not (message.guild.id in mydata["Servers"]):
+            # Haven't created servers info dict yet
+            await message.channel.send("No streams are being listened to yet!")
+            return
+        if not ("Listens" in mydata["Servers"][message.guild.id]):
+            # No listens added yet
+            await message.channel.send("No streams are being listened to yet!")
+            return
+        added = set()
+        msg = ""
+        notfound = set()
+        for newstream in command[1:]:
+            # If the name ends with a comma, strip it off. This allows
+            # to copy/paste the result of the list command into remove
+            # to remove all those streams.
+            if newstream.endswith(','):
+                newstream = newstream[:-1]
+            # print(newstream)
+            try:
+                mydata["AnnounceDict"][newstream].remove(message.guild.id)
+                added.add(newstream)
+                # If no one is watching that stream anymore, remove it
+                if not mydata["AnnounceDict"][newstream]:
+                    mydata["AnnounceDict"].pop(newstream, None)
+            except ValueError:
+                notfound.add(newstream)
+                pass  # Value not in list, don't worry about it
+            except KeyError:
+                notfound.add(newstream)
+                pass  # Value not in list, don't worry about it
+            try:
+                mydata["Servers"][message.guild.id]["Listens"].remove(newstream)
+            except ValueError:
+                pass  # Value not in list, don't worry about it
+            except KeyError:
+                pass  # Value not in list, don't worry about it
+            # If 'delete' option set, delete any announcement for that stream.
+            if ("MSG" in mydata["Servers"][message.guild.id]) and (
+                    mydata["Servers"][message.guild.id]["MSG"] == "delete"):
+                # This will delete announcement and clear savedmsg for us
+                try:
+                    await self.removemsg(parsed[newstream], [message.guild.id])
+                except KeyError:  # If stream not online, parsed won't have record.
+                    pass
+            else:
+                # We still need to remove any savedmsg we have for this stream.
+                try:  # They might not have a message saved, ignore that
+                    del mydata['SavedMSG'][message.guild.id][newstream]
+                except KeyError:
+                    pass
+            # And remove any overrides for the stream
+            try:
+                del mydata['COver'][message.guild.id][command[1]]
+            except KeyError:  # If any of those keys don't exist, it's fine
+                pass  # Ignore it, because the override isn't set.
+        if added:
+            msg += "Ok, I will no longer announce the following streamers: " + ", ".join(added)
+        if notfound:
+            msg += "\nThe following streams were not found and could not be removed: " + ", ".join(notfound)
+        if not msg:
+            msg += "Unable to remove any streams due to unknown error."
+        await message.channel.send(msg)
+
+    async def announceall(self, command, message):
+        """Gives announcements for any online streams missing them. Usually due to the bot being offline when the stream
+        came online, though recent improvements should limit that.
+
+        :param command: Command list passed from handler
+        :param message: The discord.Message instance that invoked the handler.
+        """
+        mydata = self.mydata
+        clive = 0  # Channels that are live
+        canno = 0  # Channels that were announced
+        # Iterate over all this servers' listens
+        if not (message.guild.id in mydata["Servers"] and
+                "Listens" in mydata["Servers"][message.guild.id]):
+            await message.channel.send("Server is not listening to any streams!")
+            return
+        for item in mydata["Servers"][message.guild.id]["Listens"]:
+            if item in self.parsed:  # Stream is online
+                clive = clive + 1
+                # Make sure we have a savedmsg, we're going to need it
+                if not (message.guild.id in mydata['SavedMSG']):
+                    mydata['SavedMSG'][message.guild.id] = {}
+                # Stream isn't listed, announce it
+                if item not in mydata['SavedMSG'][message.guild.id]:
+                    # print("Announcing",item)
+                    await self.announce(self.parsed[item], message.guild.id)
+                    canno = canno + 1
+        msg = "Found " + str(clive) + " live stream(s), found " + str(
+            canno) + " stream(s) that needed an announcement."
+        if await self.getoption(message.guild.id, 'Stop'):
+            msg += "\nStop is currently enabled for this server - no announcements have been made. The " \
+                   "'resume' command must be used to re-enable announcements. "
+        if not self.lastupdate:  # Note if the API update failed
+            msg += "\n**The last attempt to update API failed.** The API may be down. This will cause delays " \
+                   "in announcing streams. Streams will be announced/edited/removed as needed when the API " \
+                   "call succeeds. "
+        await message.channel.send(msg)
