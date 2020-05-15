@@ -65,6 +65,7 @@ class StreamRecord:
               'preview', 'time', 'title', 'viewers_total', 'viewers']
     # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
     upvalues = ['adult', 'gaming', 'multistream', 'viewers']
+    streamurl = ''
 
     # noinspection PyTypeChecker
     def __init__(self, recdict, detailed=False):
@@ -211,12 +212,28 @@ class StreamRecord:
         else:
             # Online streams need no adjustement.
             timestr = await APIContext.streamtime(dur)
-        if self.online:
+        # We can revert this to using self.online and having updatetask change it as needed if we have to later, but for
+        # now this is much simpler, and NOTHING uses offset except for removemsg.
+        if not offset:
             retstr = "Stream running for "
         else:
             retstr = "Stream lasted for "
         retstr += timestr
         return retstr
+
+    # async def simpembed(self, snowflake=None, offline=False):
+    #    """The embed used by the noprev message type. This is general information about the stream, but not everything.
+    #    Users can get a more detailed version using the detail command, but we want something simple for announcements.
+    #
+    #     :type snowflake: int
+    #     :type offline: bool
+    #     :rtype: discord.Embed
+    #     :param snowflake: Integer representing a discord Snowflake
+    #     :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+    #     :return: a discord.Embed representing the current stream.
+    #     """
+    #
+    #     raise NotImplementedError("StreamRecord.simpembed must be overridden.")
 
     async def simpembed(self, snowflake=None, offline=False):
         """The embed used by the noprev message type. This is general information about the stream, but not everything.
@@ -229,8 +246,21 @@ class StreamRecord:
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
-        # TODO See if I can move this functionality here. It's iffy since they're still pretty different.
-        raise NotImplementedError("StreamRecord.simpembed must be overridden.")
+        description = self.title
+        ismulti = "Multistream: No"
+        if self.multistream:
+            ismulti = "Multistream: Yes"
+        if not snowflake:
+            embtitle = self.name + " has come online!"
+        else:
+            embtitle = await self.streammsg(snowflake, offset=offline)
+        noprev = discord.Embed(title=embtitle, url=self.streamurl.format(self.name), description=description)
+        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
+                         value="Gaming: " + ("Yes" if self.gaming else "No"),
+                         inline=True)
+        noprev.add_field(name=ismulti, value="Viewers: " + str(self.viewers), inline=True)
+        noprev.set_thumbnail(url=self.avatar)
+        return noprev
 
     async def makeembed(self, snowflake=None, offline=False):
         """The embed used by the default message type. Same as the simple embed except for added preview of the stream.

@@ -78,7 +78,10 @@ changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
+# TODO Add stuff to the changelog.
 changelog = '''1.1 Changelog:
+Added StreamRecord
+Piczel output changed slightly to match Picarto
 
 '''
 

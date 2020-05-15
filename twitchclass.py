@@ -60,6 +60,8 @@ class TwitchRecord(basecontext.StreamRecord):
     # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
     upvalues = []  # viewer_count manually updated
 
+    streamurl = "https://twitch.tv/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(rec)) generally
+
     def __init__(self, recdict, detailed=True):  # No detailed version of a record here.
         super().__init__(recdict, detailed)
         self.internal['multistream'] = []
@@ -241,7 +243,8 @@ class TwitchContext(basecontext.APIContext):
         """
         # TODO Should be done. May need to rewrite the updater to grab the user record for any new streams.
         #  Up to 100 can be in one call, same as streams, and with the update system I won't need to recall it again
-        #  for anything. That'd give ALL the info for twitch streams.
+        #  for anything. That'd give ALL the info for twitch streams. If I do that I can update simpembed with a bit
+        #  more information.
         # Twitch is different since you can't get all online streams - there's far
         # too many. Instead we only grab watched streams in groups.
         found = {}  # Used to hold the records from the API calls.

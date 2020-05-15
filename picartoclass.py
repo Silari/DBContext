@@ -45,6 +45,8 @@ class PicartoRecord(basecontext.StreamRecord):
     #            'multistream', 'languages', 'following']
     # The first item in multistream is the host.
 
+    streamurl = "https://picarto.tv/{0}"  # URL for going to watch the stream
+
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
         self.internal['preview'] = recdict['thumbnails']['web']
@@ -59,33 +61,6 @@ class PicartoRecord(basecontext.StreamRecord):
             self.internal['avatar'] = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault" \
                                                                                                          ".jpg "
             self.internal['online'] = True
-
-    async def simpembed(self, snowflake=None, offline=False):
-        """The embed used by the noprev message type. This is general information about the stream, but not everything.
-        Users can get a more detailed version using the detail command, but we want something simple for announcements.
-
-        :type snowflake: int
-        :type offline: bool
-        :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
-        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
-        :return: a discord.Embed representing the current stream.
-        """
-        description = self.title
-        value = "Multistream: No"
-        if self.multistream:
-            value = "Multistream: Yes"
-        if not snowflake:
-            embtitle = self.name + " has come online!"
-        else:
-            embtitle = await self.streammsg(snowflake, offset=offline)
-        noprev = discord.Embed(title=embtitle, url=PicartoContext.streamurl.format(self.name), description=description)
-        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
-                         value="Gaming: " + ("Yes" if self.gaming else "No"),
-                         inline=True)
-        noprev.add_field(name=value, value="Viewers: " + str(self.viewers), inline=True)
-        noprev.set_thumbnail(url=self.avatar)
-        return noprev
 
     async def detailembed(self, showprev=True):
         """This generates the embed to send when detailed info about a stream is requested. More information is provided

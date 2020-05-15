@@ -55,6 +55,7 @@ class PiczelRecord(basecontext.StreamRecord):
     #            'rendered_description', 'settings', 'slug', 'tags', 'title', 'user', 'username', 'viewers']
 
     upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
+    streamurl = "http://piczel.tv/watch/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(record))
 
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
@@ -145,33 +146,6 @@ class PiczelRecord(basecontext.StreamRecord):
         """
         return "Followers:", self.internal['viewers_total']
 
-    async def simpembed(self, snowflake=None, offline=False):
-        """The embed used by the noprev message type. This is general information about the stream, but not everything.
-        Users can get a more detailed version using the detail command, but we want something simple for announcements.
-
-        :type snowflake: int
-        :type offline: bool
-        :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
-        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
-        :return: a discord.Embed representing the current stream.
-        """
-        description = self.title
-        value = "Multistream: No"
-        if self.multistream:
-            value = "Multistream: Yes"
-        if not snowflake:
-            embtitle = self.name + " has come online!"
-        else:
-            embtitle = await self.streammsg(snowflake, offset=offline)
-        noprev = discord.Embed(title=embtitle, url=PiczelContext.streamurl.format(self.name), description=description)
-        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
-                         value="Viewers: " + str(self.viewers),
-                         inline=True)
-        noprev.add_field(name=value, value="Private: " + ("Yes" if self.internal['isPrivate?'] else "No"), inline=True)
-        noprev.set_thumbnail(url=self.avatar)
-        return noprev
-
     async def detailembed(self, showprev=True):
         """This generates the embed to send when detailed info about a stream is requested. More information is provided
         than with the other embeds.
@@ -183,13 +157,11 @@ class PiczelRecord(basecontext.StreamRecord):
         """
         # This generates the embed to send when detailed info about a stream is
         # requested. The actual message is handled by basecontext's detailannounce
-        # TODO if not detailed, make this call makeembed if showprev, simpleembed if not. It SHOULDN'T be used but if it
-        #  is called at least it'll work.
         description = self.title
         multstring = ""
         # If the stream is in a multi, we need to assemble the string that says who they are multistreaming with. This
-        # is only available in a detailed record.
-        if self.multistream:
+        # is only available in a detailed record. With a non-detailed record, it will not include multistream info.
+        if self.multistream and len(self.otherstreams):
             multstring += " and streaming with "
             if len(self.otherstreams) == 1:
                 multstring += self.otherstreams[0]['name']
