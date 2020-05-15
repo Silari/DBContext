@@ -206,7 +206,9 @@ class StreamRecord:
         else:
             # Online streams need no adjustement.
             timestr = await APIContext.streamtime(dur)
-        if self.online:
+        # We can revert this to using self.online and having updatetask change it as needed if we have to later, but for
+        # now this is much simpler, and NOTHING uses offset except for removemsg.
+        if not offset:
             retstr = "Stream running for "
         else:
             retstr = "Stream lasted for "
