@@ -26,6 +26,8 @@ import time  # Used to add a time stamp to images to avoid caches.
 class Updated:
     """Represents if the last API update succeeded, and counts contiguous failures."""
 
+    __slots__ = ['record', 'failed']
+
     def __init__(self):
         self.failed = 0
 
@@ -54,6 +56,9 @@ class ChannelNotSet(discord.DiscordException):
 class StreamRecord:
     """Class that encapsulates a record from a stream."""
 
+    __slots__ = ['adult', 'avatar', 'detailed', 'detailembed', 'gaming', 'internal', 'makeembed', 'multistream', 'name',
+                 'offlinetime', 'online', 'onlinetime', 'otherstreams', 'preview', 'simpembed', 'streammsg', 'time',
+                 'title', 'total_views', 'update', 'viewers']
     # List of values to retain from the starting dictionary.
     # Generally subclasses are going to overwrite this, but this is a basic list of what we generally expect to exist.
     values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',

@@ -46,6 +46,8 @@ def getstream(recordid):
 
 class PiczelRecord(basecontext.StreamRecord):
 
+    __slots__ = []
+
     values = ['adult', 'isPrivate?', 'title', 'viewers']
     # Piczel keys for online/offline streams. DBMulti is only present if in_multi is True. Contains addl PiczelRecords
     # values2 = ['DBMulti', 'adult', 'banner', 'banner_link', 'description', 'follower_count', 'id', 'in_multi',

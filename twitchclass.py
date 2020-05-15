@@ -47,6 +47,8 @@ def getstream(recordid):
 
 class TwitchRecord(basecontext.StreamRecord):
 
+    __slots__ = []
+
     values = []
     # Online keys (Stream record)
     # values2 = ['game_id', 'id', 'language', 'started_at', 'tag_ids', 'thumbnail_url',

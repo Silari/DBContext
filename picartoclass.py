@@ -35,6 +35,8 @@ def getstream(recordid):
 
 class PicartoRecord(basecontext.StreamRecord):
 
+    __slots__ = []
+
     values = ['adult', 'gaming', 'multistream', 'name', 'title', 'viewers']
     # Keys that are present in a Picarto stream. We don't currently need most of these.
     # values2 = ['user_id', 'name', 'avatar', 'online', 'viewers', 'viewers_total', 'thumbnails', 'followers',
