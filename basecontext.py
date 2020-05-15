@@ -224,10 +224,12 @@ class StreamRecord:
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
+        # TODO See if I can move this functionality here. It's iffy since they're still pretty different.
         raise NotImplementedError("StreamRecord.simpembed must be overridden.")
 
     async def makeembed(self, snowflake=None, offline=False):
         """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
+        Generally this doesn't need to be overridden as it just adds the preview, which the preview property handles.
 
         :type snowflake: int
         :type offline: bool
@@ -410,7 +412,6 @@ class APIContext:
         """
         raise NotImplementedError("getrecordid must be overridden in subclass!")
 
-    # Get saved message id
     async def getmsgid(self, guildid, recordid):
         """Gets the snowflake for the message we used to announce the stream in the guild.
 
@@ -474,10 +475,8 @@ class APIContext:
         glob = await self.getglobal(guildid, 'Channel')
         return glob
 
-    # Gets the given option by searching stream overrides, guild override,
-    # guild setting, or global settings (which checks for default settings)
     async def getoption(self, guildid, option, recordid=None):
-        """Gets the value for the option given, checking in order for on set on the stream, the module, or globally.
+        """Gets the value for the option given, checking in order for one set on the stream, the module, or globally.
 
         :type guildid: int
         :type option: str
@@ -536,7 +535,6 @@ class APIContext:
             mydata["Servers"][guildid][optname] = setting
         return True
 
-    # Sets the override option for the given stream
     async def setstreamoption(self, guildid, optname, recordid, setting=None):
         """Sets or clears an option for the given stream for the given server.
 
@@ -570,8 +568,6 @@ class APIContext:
         mydata['COver'][guildid][recordid]['Option'][optname] = setting
         return True
 
-    # Function to get length of time a stream was running for, based on a message
-    # snowflake.
     @staticmethod
     async def streamtime(dur, offset=None, longtime=False):
         """Function to generate a string to say how long stream has lasted.
@@ -652,9 +648,6 @@ class APIContext:
 
     agetstreamoffline = agetstream
 
-    # Handles calling the API at the given URL and interpreting the result as
-    # JSON. No changes are made to the data, so it can be used by anything that
-    # needs a simple GET ran.
     async def acallapi(self, url, headers=None):
         """Calls the API at the given URL, with optional headers, and interprets the result via the JSON library.
         Returns the interpreted JSON on success, None if the attempt timed out, 0 if the API says the name wasn't found,
@@ -733,8 +726,6 @@ class APIContext:
         self.lastupdate.record(updated)
         return updated, newparsed
 
-    # This is started as a background task by dbcontext. It can be empty but
-    # should exist.
     async def updatewrapper(self, conn):
         """Sets a function to be run continuously every 60 seconds until the bot is closed. Handles errors that
         propagate outside of the called function to ensure the task doesn't stop prematurely.
@@ -1067,6 +1058,8 @@ class APIContext:
                 # print("updatemsg2",repr(e))
                 pass
             if oldmess:
+                # TODO Check if changing various options messes up how the update works. Particularly the lack of an
+                #  embed and/or the preview image.
                 msg = oldmess.content
                 # If the stream appears to be offline now, edit the announcement slightly.
                 if record.offlinetime:
@@ -1089,8 +1082,6 @@ class APIContext:
                         # print("updatemsg adding embed")
                         await oldmess.edit(content=msg, embed=myembed, suppress=False)
 
-    # Announce a stream is online. oneserv only sends the message on the given
-    # server, otherwise find all servers that should announce that name.
     async def announce(self, record, oneserv=None):
         """Announce a stream. Limit announcement to 'oneserv' if given.
 
@@ -1382,6 +1373,8 @@ class APIContext:
         :param command: Command list passed from handler
         :param message: The discord.Message instance that invoked the handler.
         """
+        # TODO Find out why halcyon gave a 404 when Halcyon worked. API should be case insensitive?
+        #  ditto for shydale vs Shydale.
         mydata = self.mydata
         if not (message.guild.id in mydata["Servers"]):
             # Haven't created servers info dict yet, make a dict.

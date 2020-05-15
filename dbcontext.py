@@ -3,6 +3,7 @@
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
+#  Maybe via 'if client.user' - will be None if not logged in?
 
 # TESTING NOTES
 
@@ -128,11 +129,41 @@ newcont = {}
 contfuncs = {}
 
 
+async def resolveuser(userid, guild=None):
+    """Resolves a Member or User instance from the given id. The ID can be in username#0000 format or a user
+     mention.
+
+    :type userid: str
+    :type guild: discord.Guild
+    :rtype: discord.Member | discord.User | None
+    :param userid: A string with the username and discriminator in username#0000 format, or a user mention string, or
+    the user id.
+    :param guild: discord Guild instance to search in. If not provided return can only be a User instance.
+    :return: Returns a discord Member if found in guild, otherwise returns a User member if found.
+    """
+    # This is a mention string so we need to remove the mention portion of it.
+    if userid.startswith('<@!'):
+        userid = userid[3:-1]
+    elif userid.startswith('<@'):
+        userid = userid[2:-1]
+    if guild:
+        if '#' in userid:
+            founduser = discord.utils.find(lambda m: str(m) == userid, guild.members)
+        else:
+            founduser = discord.utils.find(lambda m: str(m.id) == userid, guild.members)
+    else:
+        if '#' in userid:
+            founduser = discord.utils.find(lambda m: str(m) == userid, client.users)
+        else:
+            founduser = discord.utils.find(lambda m: str(m.id) == userid, client.users)
+    return founduser
+
+
 class LimitedClient:
     """Allows modules limited access to needed Client functionality."""
 
     def __init__(self, parentclient):
-        """
+        """Allows modules limited access to needed Client functionality.
 
         :type parentclient: discord.Client
         :param parentclient: A Client instance we use to create our LimitedClient.
@@ -141,6 +172,9 @@ class LimitedClient:
         self.get_channel = parentclient.get_channel
         self.wait_until_ready = parentclient.wait_until_ready
         self.is_closed = parentclient.is_closed
+        # This is a custom function that helps resolve a Member/User instance from the username#0000 or ID. It uses the
+        # users property of client which we don't want exposed.
+        self.resolveuser = resolveuser
 
 
 fakeclient = LimitedClient(client)
@@ -606,7 +640,7 @@ async def managehandler(command, message):
         notfound = set()
         managerole = await getuserrole(message.guild)
         for username in command[1:]:
-            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            founduser = await resolveuser(username, message.guild)
             if founduser:
                 if founduser.bot:
                     noperm.add(username + ":bot")  # User is a bot, never allowed
@@ -767,7 +801,7 @@ async def managehandler(command, message):
         msg = ""
         notfound = set()
         for username in command[1:]:
-            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            founduser = await resolveuser(username, message.guild)
             if founduser:
                 await founduser.add_roles(managerole, reason="Added user to bot management.")
                 added.add(username)
@@ -785,7 +819,7 @@ async def managehandler(command, message):
         msg = ""
         notfound = set()
         for username in command[1:]:
-            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            founduser = await resolveuser(username, message.guild)
             if founduser:
                 await founduser.remove_roles(managerole, reason="Removed user from bot management.")
                 removed.add(username)
@@ -911,13 +945,14 @@ async def debughandler(command, message):
             msg = await renamerole(guild)
             print(msg)  # await message.channel.send(msg)
         return
-    elif command[0] == 'checkroles':
-        for guild in client.guilds:
-            foundrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
-            if foundrole:
-                print(guild.name, foundrole.name)  # await message.channel.send(msg)
-            else:
-                print(guild.name, "No role")
+    elif command[0] == 'testresolve':
+        ret = []
+        for comm in command[1:]:
+            found = await resolveuser(comm)
+            ret.append(found)
+            found = await resolveuser(comm, message.guild)
+            ret.append(found)
+        print("testresolve", ret)
         return
     elif command[0] == 'testtop':
         msg = "Roles:"
