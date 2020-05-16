@@ -80,9 +80,16 @@ changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # proper.
 # TODO Add stuff to the changelog.
 changelog = '''1.1 Changelog:
-Added StreamRecord
+Added StreamRecord and subclasses to handle differences between the API.
 Piczel output changed slightly to match Picarto
-
+Messages in the temp offline state are edited to match the fully offline state: 'Stream lasted'
+Fixes to the notify system
+ Bot will warn if it isn't able to assign the notify role due to position.
+ notifyon command will remake the message if it isn't found.
+Refactored updatemsg to return early if update isn't needed. Corrected bug where it would quit early instead of skipping
+ to the next server.
+Lots of fixes for style and general cleanup of code. Documentation added to most functions.
+Added restart command, which saves tempdata same as quit.
 '''
 
 myloop = asyncio.get_event_loop()

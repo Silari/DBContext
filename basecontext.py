@@ -26,7 +26,7 @@ import time  # Used to add a time stamp to images to avoid caches.
 class Updated:
     """Represents if the last API update succeeded, and counts contiguous failures."""
 
-    __slots__ = ['record', 'failed']
+    __slots__ = ['failed']
 
     def __init__(self):
         self.failed = 0
@@ -56,9 +56,10 @@ class ChannelNotSet(discord.DiscordException):
 class StreamRecord:
     """Class that encapsulates a record from a stream."""
 
-    __slots__ = ['adult', 'avatar', 'detailed', 'detailembed', 'gaming', 'internal', 'makeembed', 'multistream', 'name',
-                 'offlinetime', 'online', 'onlinetime', 'otherstreams', 'preview', 'simpembed', 'streammsg', 'time',
-                 'title', 'total_views', 'update', 'viewers']
+    __slots__ = ['internal', 'offlinetime', 'onlinetime']
+    # __slots__ = ['adult', 'avatar', 'detailed', 'detailembed', 'gaming', 'internal', 'makeembed','multistream','name',
+    #              'offlinetime', 'online', 'onlinetime', 'otherstreams', 'preview', 'simpembed', 'streammsg', 'time',
+    #              'title', 'total_views', 'update', 'viewers']
     # List of values to retain from the starting dictionary.
     # Generally subclasses are going to overwrite this, but this is a basic list of what we generally expect to exist.
     values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',
@@ -220,20 +221,6 @@ class StreamRecord:
             retstr = "Stream lasted for "
         retstr += timestr
         return retstr
-
-    # async def simpembed(self, snowflake=None, offline=False):
-    #    """The embed used by the noprev message type. This is general information about the stream, but not everything.
-    #    Users can get a more detailed version using the detail command, but we want something simple for announcements.
-    #
-    #     :type snowflake: int
-    #     :type offline: bool
-    #     :rtype: discord.Embed
-    #     :param snowflake: Integer representing a discord Snowflake
-    #     :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
-    #     :return: a discord.Embed representing the current stream.
-    #     """
-    #
-    #     raise NotImplementedError("StreamRecord.simpembed must be overridden.")
 
     async def simpembed(self, snowflake=None, offline=False):
         """The embed used by the noprev message type. This is general information about the stream, but not everything.
@@ -1408,8 +1395,6 @@ class APIContext:
         :param command: Command list passed from handler
         :param message: The discord.Message instance that invoked the handler.
         """
-        # TODO Find out why halcyon gave a 404 when Halcyon worked. API should be case insensitive?
-        #  ditto for shydale vs Shydale.
         mydata = self.mydata
         if not (message.guild.id in mydata["Servers"]):
             # Haven't created servers info dict yet, make a dict.
@@ -1445,11 +1430,10 @@ class APIContext:
             # Need to match case with the API name, so test it first
             # If we already are watching it, it must be the correct name.
             # OR if the stream is in parsed, it must be the correct name.
-            elif ((newstream not in mydata["AnnounceDict"]) and
-                  (newstream not in self.parsed)):
+            elif (newstream not in mydata["AnnounceDict"]) and (newstream not in self.parsed):
                 newrecord = await self.agetstreamoffline(newstream)
-                # print(newrecordid)
-                if not newrecordid:
+                # print(newrecord)
+                if not newrecord:
                     notfound.add(newstream)
                 else:
                     newrecordid = newrecord.name
