@@ -54,12 +54,36 @@ class ChannelNotSet(discord.DiscordException):
 
 
 class StreamRecord:
-    """Class that encapsulates a record from a stream."""
+    """Class that encapsulates a record from a stream.
 
-    __slots__ = ['internal', 'offlinetime', 'onlinetime']
-    # __slots__ = ['adult', 'avatar', 'detailed', 'detailembed', 'gaming', 'internal', 'makeembed','multistream','name',
-    #              'offlinetime', 'online', 'onlinetime', 'otherstreams', 'preview', 'simpembed', 'streammsg', 'time',
-    #              'title', 'total_views', 'update', 'viewers']
+    adult: bool
+      Is the stream marked Adult?
+    avatar: str
+      URL for the avatar of the stream.
+    detailed: bool
+      Is the record a detailed record?
+    gaming: bool
+      Is the stream set as a gaming stream?
+    multistream: list | bool
+      Stores information about multistream status. This should be interacted with via ismulti or otherstreams.
+    name: str
+      Name of the stream.
+    online: bool
+      Is the stream online?
+    preview: str
+      Used by preview_url to generate the URL to watch the stream at.
+    time: datetime.datetime
+      Time the stream went online.
+    title: str
+      Channel title/description.
+    viewers: int
+      Number of people viewing the stream.
+    """
+
+    # __slots__ = ['internal', 'offlinetime', 'onlinetime']
+    __slots__ = ['adult', 'avatar', 'detailed', 'gaming', 'multistream', 'name',
+                 'offlinetime', 'online', 'onlinetime', 'preview', 'simpembed', 'streammsg', 'time',
+                 'title', 'update', 'viewers', 'viewers_total']
     # List of values to retain from the starting dictionary.
     # Generally subclasses are going to overwrite this, but this is a basic list of what we generally expect to exist.
     values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',
@@ -70,54 +94,26 @@ class StreamRecord:
 
     # noinspection PyTypeChecker
     def __init__(self, recdict, detailed=False):
-        self.internal = {k: recdict[k] for k in self.values}
-        self.internal['detailed'] = detailed
+        # self.internal = {k: recdict[k] for k in self.values}
+        for name in self.values:
+            setattr(self, name, recdict[name])
+        self.detailed = detailed
         self.offlinetime = None  # type: datetime.datetime # Time since stream went offline.
         self.onlinetime = None  # type: datetime.datetime # Time since last stream update.
 
     def update(self, newdict):
-        self.internal.update({k: newdict[k] for k in self.upvalues})
+        # self.internal.update({k: newdict[k] for k in self.upvalues})
+        for name in self.upvalues:
+            setattr(self, name, newdict[name])
 
     @property
-    def adult(self):
-        """Is the stream marked Adult?
-
-        :rtype: bool
-        """
-        return self.internal['adult']
-
-    @property
-    def avatar(self):
-        """URL for the avatar of the stream.
-
-        :rtype: str
-        """
-        return self.internal['avatar']
-
-    @property
-    def detailed(self):
-        """Is the record a detailed record?
-
-        :rtype: bool
-        """
-        return self.internal['detailed']
-
-    @property
-    def gaming(self):
-        """Is the stream set as a gaming stream?
-
-        :rtype: bool
-        """
-        return self.internal['gaming']
-
-    @property
-    def multistream(self):
+    def ismulti(self):
         """Is the stream a multistream?
 
         :return: Returns True if stream is an a multistream, otherwise False.
         :rtype: bool
         """
-        return bool(self.internal['multistream'])
+        return bool(self.multistream)
 
     @property
     def otherstreams(self):
@@ -127,54 +123,30 @@ class StreamRecord:
         :return: Returns an empty list if no multi, otherwise list contains dict items
         :rtype: list
         """
-        if self.internal['detailed']:
-            return [x for x in self.internal['multistream'] if x['name'] != self.name]
+        if self.detailed:
+            return [x for x in self.multistream if x['name'] != self.name]
         return []
 
     @property
-    def name(self):
-        """Name of the stream.
-
-        :rtype: str
-        """
-        return self.internal['name']
-
-    @property
-    def online(self):
-        """Is the stream online?
-
-        :rtype: bool
-        """
-        return self.internal['online']
-
-    @property
-    def preview(self):
+    def preview_url(self):
         """URL for the stream preview. We add a time property to the end to get around caching.
 
         :rtype: str
         """
-        return self.internal['preview'] + "?msgtime=" + str(int(time.time()))
+        return self.preview + "?msgtime=" + str(int(time.time()))
 
     @property
-    def time(self):
+    def duration(self):
         """Length of time the stream has been running. internal['time'] must be a datetime.datetime which is used to
         calculate the stream length.
 
         :rtype: datetime.timedelta
         """
         try:
-            return datetime.datetime.now(datetime.timezone.utc) - self.internal['time']
-        except KeyError:
+            return datetime.datetime.now(datetime.timezone.utc) - self.time
+        except AttributeError:
             pass
         return datetime.timedelta()
-
-    @property
-    def title(self):
-        """Channel title/description.
-
-        :rtype: str
-        """
-        return self.internal['title']
 
     @property
     def total_views(self):
@@ -184,28 +156,23 @@ class StreamRecord:
         :rtype: tuple[str, int]
         :return: A tuple with a string describing what we're counting, and an integer with the count.
         """
-        return "Total views:", self.internal['viewers_total']
-
-    @property
-    def viewers(self):
-        """Number of people viewing the stream.
-
-        :rtype: int
-        """
-        return self.internal['viewers']
+        return "Total views:", self.viewers_total
 
     async def streammsg(self, snowflake, offset=False):
         """Function to generate a string to say how long stream has lasted.
 
-        :type snowflake: int
+        :type snowflake: int | None
         :type offset: bool
         :rtype: str
-        :param snowflake: Integer representing a discord Snowflake
+        :param snowflake: Integer representing a discord Snowflake, or None to only use the stored time.
         :param offset: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a string stating the time the stream has ran for.
         """
         # Find the duration of the stream.
-        dur = await APIContext.longertime(snowflake, self.time)
+        if snowflake:  # If a snowflake was given instead of None
+            dur = await APIContext.longertime(snowflake, self.duration)
+        else:
+            dur = self.duration
         # If stream is offline, we adjust the time to account for the waiting
         # period before we marked it offline.
         if offset:
@@ -235,7 +202,7 @@ class StreamRecord:
         """
         description = self.title
         ismulti = "Multistream: No"
-        if self.multistream:
+        if self.ismulti:
             ismulti = "Multistream: Yes"
         if not snowflake:
             embtitle = self.name + " has come online!"
@@ -262,7 +229,7 @@ class StreamRecord:
         """
         # Simple embed is the same, we just need to add a preview image. Save code
         myembed = await self.simpembed(snowflake, offline)
-        myembed.set_image(url=self.preview)  # Add your image here
+        myembed.set_image(url=self.preview_url)  # Add your image here
         return myembed
 
     async def detailembed(self, showprev=True):
@@ -637,10 +604,7 @@ class APIContext:
         :param rectime: A full stream record as returned by the API
         :return: The longer duration between when the snowflake was created and the time contained in the record.
         """
-        if snowflake:
-            dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
-        else:
-            dur = datetime.timedelta()
+        dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
         return max(rectime, dur)
 
     async def makemsg(self, record):

@@ -8,7 +8,6 @@ import json  # Interpreting json results - updateparsed most likely needs this.
 import discord  # The discord API module. Most useful for making Embeds
 # import asyncio  # Use this for sleep, not time.sleep.
 import urllib.request as request  # Send HTTP requests - debug use only NOT IN BOT
-import time  # Attaches to thumbnail URL to avoid discord's overly long caching
 import datetime  # Stream durations, time online, etc.
 import basecontext  # Base class for our API based context
 import apitoken
@@ -47,7 +46,7 @@ def getstream(recordid):
 
 class TwitchRecord(basecontext.StreamRecord):
 
-    __slots__ = []
+    __slots__ = ['game_id']
 
     values = []
     # Online keys (Stream record)
@@ -64,74 +63,30 @@ class TwitchRecord(basecontext.StreamRecord):
 
     def __init__(self, recdict, detailed=True):  # No detailed version of a record here.
         super().__init__(recdict, detailed)
-        self.internal['multistream'] = []
+        self.detailed = True  # Twitch is ALWAYS detailed.
+        self.adult = False  # Twitch doesn't allow adult streams
+        self.gaming = True  # Twitch API doesn't support that, but is basically always gaming. Not really used.
+        self.multistream = []  # Twitch doesn't have multistreams
         if 'view_count' in recdict:  # Is a user record rather than a stream record.
-            self.internal['avatar'] = recdict['profile_image_url']
-            self.internal['name'] = recdict['display_name']
-            self.internal['online'] = False
-            self.internal['viewers_total'] = recdict['view_count']
-            self.internal['title'] = recdict['description']
+            self.avatar = recdict['profile_image_url']
+            self.name = recdict['display_name']
+            self.online = False
+            self.viewers_total = recdict['view_count']
+            self.title = recdict['description']
         else:
-            self.internal['name'] = recdict['user_name']
-            self.internal['online'] = True
-            self.internal['preview'] = recdict['thumbnail_url'].replace("{width}", "848").replace("{height}", "480")
-            self.internal['time'] = datetime.datetime.strptime(recdict['started_at'], "%Y-%m-%dT%H:%M:%SZ")\
+            self.name = recdict['user_name']
+            self.online = True
+            self.preview = recdict['thumbnail_url'].replace("{width}", "848").replace("{height}", "480")
+            self.time = datetime.datetime.strptime(recdict['started_at'], "%Y-%m-%dT%H:%M:%SZ")\
                 .replace(tzinfo=datetime.timezone.utc)
-            self.internal['title'] = recdict['title']
-            self.internal['viewers'] = recdict['viewer_count']
-            self.internal['game_id'] = recdict['game_id']  # Specific to Twitch.
+            self.title = recdict['title']
+            self.viewers = recdict['viewer_count']
+            self.game_id = recdict['game_id']  # Specific to Twitch.
 
     def update(self, newdict):
         # self.internal.update({k: newdict[k] for k in self.upvalues})
-        self.internal['viewers'] = newdict['viewer_count']
-        self.internal['game_id'] = newdict['game_id']
-
-    @property
-    def adult(self):
-        """Is the stream marked Adult?
-
-        :rtype: bool
-        """
-        return False
-
-    @property
-    def avatar(self):
-        """URL for the avatar of the stream.
-
-        :rtype: str
-        """
-        try:
-            return self.internal['avatar']
-        except KeyError:
-            return ''
-
-    @property
-    def detailed(self):
-        """Is the record a detailed record?
-
-        :rtype: bool
-        """
-        # There are no detailed records, just stream records (only if online) and user records.
-        return True
-
-    @property
-    def gaming(self):
-        """Is the stream set as a gaming stream?
-
-        :rtype: bool
-        """
-        return True
-
-    @property
-    def preview(self):
-        """URL for the stream preview. We add a time property to the end to get around caching.
-
-        :rtype: str
-        """
-        try:
-            return self.internal['preview'] + "?msgtime=" + str(int(time.time()))
-        except KeyError:
-            return ''
+        self.viewers = newdict['viewer_count']
+        self.game_id = newdict['game_id']
 
     async def getgame(self, gameid):
         """Gets the name associated with the given gameid. Stores results to prevent unneeded lookups.
@@ -163,7 +118,7 @@ class TwitchRecord(basecontext.StreamRecord):
         else:
             embtitle = await self.streammsg(snowflake, offset=offline)
         noprev = discord.Embed(title=embtitle, url="https://twitch.tv/" + self.name, description=description)
-        noprev.add_field(name="Game: " + await self.getgame(self.internal['game_id']),
+        noprev.add_field(name="Game: " + await self.getgame(self.game_id),
                          value="Viewers: " + str(self.viewers), inline=True)
         return noprev
 
@@ -178,16 +133,16 @@ class TwitchRecord(basecontext.StreamRecord):
         """
         # This is more complicated since there is a different record type needed
         # if the stream is offline, than if it is online.
+        # Overly long titles can be a problem, so cull them if they're too long.
         description = self.title[:150]
         if self.online:  # user_id field is only on streams, not users
-            myembed = discord.Embed(title=self.name + " is online for " +
-                                    await TwitchContext.streamtime(self.time) + "!",
+            myembed = discord.Embed(title=await self.streammsg(None),
                                     url="https://twitch.tv/" + self.name,
                                     description=description)
-            myembed.add_field(name="Game: " + await self.getgame(self.internal['game_id']),
+            myembed.add_field(name="Game: " + await self.getgame(self.game_id),
                               value="Viewers: " + str(self.viewers), inline=True)
             if showprev:
-                myembed.set_image(url=self.preview)
+                myembed.set_image(url=self.preview_url)
         else:  # We have a user record, due to an offline stream.
             myembed = discord.Embed(title=self.name + " is not currently streaming.",
                                     description=description)
