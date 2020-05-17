@@ -78,7 +78,6 @@ changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-# TODO Add stuff to the changelog.
 changelog = '''1.1 Changelog:
 Added StreamRecord and subclasses to handle differences between the API.
 Piczel output changed slightly to match Picarto
@@ -90,6 +89,7 @@ Refactored updatemsg to return early if update isn't needed. Corrected bug where
  to the next server.
 Lots of fixes for style and general cleanup of code. Documentation added to most functions.
 Added restart command, which saves tempdata same as quit.
+detailembed for all contexts now uses streammsg instead of it's own message.
 '''
 
 myloop = asyncio.get_event_loop()
@@ -140,16 +140,18 @@ contfuncs = {}
 
 
 async def resolveuser(userid, guild=None):
-    """Resolves a Member or User instance from the given id. The ID can be in username#0000 format or a user
-     mention.
+    """Resolves a Member or User instance from the given id. The ID can be in 'username#0000' format or a user
+    mention or the discord ID.
 
     :type userid: str
     :type guild: discord.Guild
     :rtype: discord.Member | discord.User | None
-    :param userid: A string with the username and discriminator in username#0000 format, or a user mention string, or
-    the user id.
+    :param userid: A string with the username and discriminator in 'username#0000' format, or a user mention string, or
+     the user id.
     :param guild: discord Guild instance to search in. If not provided return can only be a User instance.
-    :return: Returns a discord Member if found in guild, otherwise returns a User member if found.
+    :return: If guild is provided, searches the guild for the given userid and returns their Member instance, or None if
+     not found. If guild is not provided, searches the Client users list and returns the found User instance, or None if
+     not found.
     """
     # This is a mention string so we need to remove the mention portion of it.
     if userid.startswith('<@!'):
@@ -780,6 +782,11 @@ async def managehandler(command, message):
         if message.channel_mentions:  # We can't do anything if they didn't include a channel
             # We need to set this channel to be talkable by anyone with the role.
             for channel in message.channel_mentions:
+                # Validate the mentions are in this guild. It SEEMS either Discord or discord.py doesn't include them
+                # anyway, but just to be sure we're still gonna check it.
+                if channel.guild != message.guild:
+                    await message.channel.send("I could not find " + channel.name + " in this server.")
+                    continue
                 msg = channel.name + ": "
                 # Set everyone role to be able to read but not send in the channel
                 try:

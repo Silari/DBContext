@@ -82,8 +82,8 @@ class StreamRecord:
 
     # __slots__ = ['internal', 'offlinetime', 'onlinetime']
     __slots__ = ['adult', 'avatar', 'detailed', 'gaming', 'multistream', 'name',
-                 'offlinetime', 'online', 'onlinetime', 'preview', 'simpembed', 'streammsg', 'time',
-                 'title', 'update', 'viewers', 'viewers_total']
+                 'offlinetime', 'online', 'onlinetime', 'preview', 'time',
+                 'title', 'viewers', 'viewers_total']
     # List of values to retain from the starting dictionary.
     # Generally subclasses are going to overwrite this, but this is a basic list of what we generally expect to exist.
     values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',
@@ -463,6 +463,25 @@ class APIContext:
         # calling functions should check for.
         glob = await self.getglobal(guildid, 'Channel')
         return glob
+
+    async def validatechannel(self, channelid, guild):
+        """Resolves a Channel instance from the given id. The ID string can be a channel mention or the discord ID.
+
+        :type channelid: str
+        :type guild: discord.Guild
+        :rtype: discord.Member | discord.User | None
+        :param channelid: A string with the channel mention string, or the channel id.
+        :param guild: discord Guild instance to search in. If not provided return can only be a User instance.
+        :return: Searches the guild for the given channelid and returns the Channel instance, or None if not found.
+        """
+        # This is a mention string so we need to remove the mention portion of it.
+        if channelid.startswith('<#'):
+            channelid = channelid[2:-1]
+        if '#' in channelid:
+            founduser = discord.utils.find(lambda m: str(m) == channelid, guild.channels)
+        else:
+            founduser = discord.utils.find(lambda m: str(m.id) == channelid, guild.channels)
+        return founduser
 
     async def getoption(self, guildid, option, recordid=None):
         """Gets the value for the option given, checking in order for one set on the stream, the module, or globally.
@@ -1224,6 +1243,11 @@ class APIContext:
             if command[0] == 'channel':
                 # This sets the channel to perform announcements/bot responses to.
                 if message.channel_mentions:
+                    # Ensure the mentioned channel is in this guild, or else we don't accept it.
+                    if message.channel_mentions[0].guild != message.guild:
+                        await message.channel.send("I could not find " + message.channel_mentions[0].name +
+                                                   " in this server.")
+                        return
                     # Set the mentioned channel as the announcement channel
                     channelid = message.channel_mentions[0].id
                 else:
@@ -1373,6 +1397,10 @@ class APIContext:
         # We're going to be setting a stream override, so make sure the
         # needed dicts are in place.
         if message.channel_mentions:  # Channel mention, so make an override
+            if message.channel_mentions[0].guild != message.guild:
+                await message.channel.send("I could not find " + message.channel_mentions[0].name +
+                                           " in this server.")
+                return
             if 'COver' not in mydata:  # We need to make the section
                 mydata['COver'] = {}  # New dict
             if message.guild.id not in mydata['COver']:
@@ -1605,8 +1633,12 @@ class APIContext:
             elif newopt.startswith('<#') and newopt.endswith('>'):
                 # Technically this might not be a valid channel if someone just types it up manually, though an
                 # actual channel mention will always be a real channel, even if the bot can't necessarily see it
-                await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
-                setopt.add(newopt)
+                chan = await self.validatechannel(newopt, message.guild)
+                if chan:
+                    await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
+                    setopt.add(newopt)
+                else:
+                    msg += "I was unable to find channel " + newopt + ". "
             elif newopt in ("default", "noprev", "simple"):
                 await self.setstreamoption(message.guild.id, "Type", record, newopt)
                 setopt.add(newopt)

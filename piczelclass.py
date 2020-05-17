@@ -67,7 +67,7 @@ class PiczelRecord(basecontext.StreamRecord):
         self.online = recdict['live']
         self.preview = str(recdict['id'])
         # Time is in UTC, convert to a datetime and specify that it's UTC.
-        if not self.online:
+        if self.online:
             # live_since exists but is none in offline streams, so this would fail.
             self.time = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")\
                 .replace(tzinfo=datetime.timezone.utc)
