@@ -36,6 +36,7 @@
 # gets changed. So 'add stream <channel>' would delete the old message and make a
 # new one in the proper channel.
 #  Can't move, would need to send new and delete old. Not sure it's worth it
+## I could probably do it for streamoption at least, so it's not a ton at once.
 
 # Maybe check on_message_deleted if it was one of our savedmsg? Then could clear
 # it from our list immediately to allow re-announcing.

@@ -872,7 +872,7 @@ class APIContext:
                 # Update the record with the new information.
                 record.update(newparsed[cur])
                 if cur in mydata['AnnounceDict']:  # Someone is watching this stream
-                    record.offlinetime = None
+                    record.offlinetime = None  # Stream is online so remove the offlinetime value.
                     if record.onlinetime:  # This will exist most of the time.
                         # If it's been longer than updatetime seconds, update the stream
                         if (curtime - record.onlinetime) > datetime.timedelta(seconds=updatetime):
@@ -926,8 +926,7 @@ class APIContext:
                     continue
                 msgopt = await self.getoption(server, "MSG", recordid)
                 # Either the MSG option is not set, or is set to edit, which is the default
-                # We should edit the message to say they're not online
-                if msgopt == "edit":
+                if msgopt == "edit":  # We should edit the message to say they're not online
                     channel = await self.resolvechannel(server, recordid)
                     if channel:  # We may not have a channel if we're no longer in the guild/channel
                         oldmess = await channel.fetch_message(msgid)
@@ -938,15 +937,13 @@ class APIContext:
                             if 'image' in newembed:  # Is there a stream preview?
                                 # Delete preview as they're not online
                                 del newembed['image']
-                            # If we have the record, this is an online edit so we
-                            # can update the time.
+                            # If we have the record, this is an online edit so we can update the time.
                             if record:
                                 # We use oldest id to get the longest possible time this stream ran
                                 # This matches how updatemsg sets the time.
                                 newembed['title'] = await record.streammsg(oldestid, offset=True)
-                            # If we don't, this is an offline edit. We can't get
-                            # the time stream ran for, so just edit the current
-                            # stored time and use that.
+                            # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
+                            # the current stored time and use that.
                             else:
                                 newembed['title'] = newembed['title'].replace("running", "lasted")
                             newembed = discord.Embed.from_dict(newembed)
@@ -1038,14 +1035,15 @@ class APIContext:
                 channel = await self.resolvechannel(server, recordid)
                 # Guild may no longer have an announce channel set, or we're
                 # not in the guild any more.
-                if channel:  # If we found the channel the saved message is in
+                if channel:
+                    # Try and find out message in the channel.
                     oldmess = await channel.fetch_message(msgid)
             except KeyError as e:
                 # This used to happen if there wasn't a saved message, or if
                 # the server removed it's announce channel. Both of those are
                 # now handled by helper functions, so this shouldn't happen.
                 print("updatemsg keyerror!", repr(e))  # Log it
-                pass
+                continue  # We can just skip to the next server immediately
             except discord.NotFound:
                 # The message wasn't found, probably deleted. Remove saved id
                 # Note this won't happen if we're not in the guild/channel or
@@ -1057,15 +1055,13 @@ class APIContext:
                     del mydata['SavedMSG'][server][recordid]
                 except KeyError:
                     pass
-                pass
+                continue  # We can just skip to the next server immediately
             except discord.HTTPException:
                 # General HTTP errors from command. Not much we can do here.
                 # print("updatemsg2",repr(e))
-                pass
+                continue  # We can just skip to the next server immediately
             if oldmess:
-                # TODO Check if changing various options messes up how the update works. Particularly the lack of an
-                #  embed and/or the preview image.
-                msg = oldmess.content
+                msg = oldmess.content  # The text of the message - always present.
                 # If the stream appears to be offline now, edit the announcement slightly.
                 if record.offlinetime:
                     msg = msg.replace("has come online! Watch them", "was online")
@@ -1077,9 +1073,8 @@ class APIContext:
                     await oldmess.edit(content=msg, embed=noprev, suppress=False)
                 else:
                     # Need to check if stream is adult, and what to do if it is.
-                    isadult = record.adult
                     adult = await self.getoption(server, 'Adult', recordid)
-                    if isadult and (adult != 'showadult'):
+                    if record.adult and (adult != 'showadult'):
                         # hideadult or noadult, same as noprev option
                         await oldmess.edit(content=msg, embed=noprev, suppress=False)
                     else:
@@ -1099,8 +1094,8 @@ class APIContext:
         # Make the embeds and the message for our announcement - done once no
         # matter how many servers we need to send it too. Note we should always
         # have at least one server, or else announce wouldn't have been called.
-        myembed = await record.makeembed()
-        noprev = await record.simpembed()
+        myembed = await record.makeembed() # Default style
+        noprev = await record.simpembed() # noprev style
         msg = await self.makemsg(record)
         recordid = record.name
         # We're going to iterate over a list of servers to announce on
