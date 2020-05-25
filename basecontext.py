@@ -976,6 +976,10 @@ class APIContext:
                 # caught the obvious ones, so lets log this to see what happened.
                 print(self.name, "remove message HTTPException:", repr(e))
                 pass
+            except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                pass  # Nothing we can do but ignore it. May setup retry logic later
+            except aiohttp.ClientConnectorError:  # Connection failed
+                pass  # Again, not much to do.
             # Remove the msg from the list, we won't update it anymore.
             # This still happens for static messages, which aren't edited or removed
             try:
@@ -1070,17 +1074,23 @@ class APIContext:
                     # hurt anything if the message is already correct.
                     msg = msg.replace("was online", "has come online! Watch them")
                 if typeopt == "noprev":
-                    await oldmess.edit(content=msg, embed=noprev, suppress=False)
+                    thisembed = noprev
                 else:
                     # Need to check if stream is adult, and what to do if it is.
                     adult = await self.getoption(server, 'Adult', recordid)
                     if record.adult and (adult != 'showadult'):
                         # hideadult or noadult, same as noprev option
-                        await oldmess.edit(content=msg, embed=noprev, suppress=False)
+                        thisembed = noprev
                     else:
                         # Otherwise show the preview
                         # print("updatemsg adding embed")
-                        await oldmess.edit(content=msg, embed=myembed, suppress=False)
+                        thisembed = myembed
+                try:
+                    await oldmess.edit(content=msg, embed=thisembed, suppress=False)
+                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                    pass  # Nothing we can do but ignore it and retry it later
+                except aiohttp.ClientConnectorError:  # Connection failed
+                    pass  # Again, not much to do.
 
     async def announce(self, record, oneserv=None):
         """Announce a stream. Limit announcement to 'oneserv' if given.
@@ -1094,8 +1104,8 @@ class APIContext:
         # Make the embeds and the message for our announcement - done once no
         # matter how many servers we need to send it too. Note we should always
         # have at least one server, or else announce wouldn't have been called.
-        myembed = await record.makeembed() # Default style
-        noprev = await record.simpembed() # noprev style
+        myembed = await record.makeembed()  # Default style
+        noprev = await record.simpembed()  # noprev style
         msg = await self.makemsg(record)
         recordid = record.name
         # We're going to iterate over a list of servers to announce on
