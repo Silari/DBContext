@@ -37,7 +37,7 @@ class PicartoRecord(basecontext.StreamRecord):
 
     __slots__ = []
 
-    values = ['adult', 'gaming', 'multistream', 'name', 'title', 'viewers']
+    values = ['adult', 'gaming', 'name', 'title', 'viewers']
     # Keys that are present in a Picarto stream. We don't currently need most of these.
     # values2 = ['user_id', 'name', 'avatar', 'online', 'viewers', 'viewers_total', 'thumbnails', 'followers',
     #            'subscribers', 'adult', 'category', 'account_type', 'commissions', 'recordings', 'title',
@@ -51,6 +51,12 @@ class PicartoRecord(basecontext.StreamRecord):
         super().__init__(recdict, detailed)
         self.preview = recdict['thumbnails']['web']
         if detailed:
+            if recdict['multistream']:
+                self.multistream = [basecontext.MultiClass(x['adult'], x['name'], x['user_id'])
+                                    for x in recdict['multistream']
+                                    if (x['online'] and x['user_id'] != self.name)]
+            else:
+                self.multistream = []
             self.online = recdict['online']
             self.time = datetime.datetime.strptime(''.join(recdict['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
             self.avatar = recdict['avatar']  # We COULD make this ourself same as below, but easier to just grab it.
@@ -59,6 +65,7 @@ class PicartoRecord(basecontext.StreamRecord):
             # Non detailed records omit the time and avatar URLs, but we can make those easily enough.
             self.time = datetime.datetime.now(datetime.timezone.utc)
             self.avatar = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault.jpg "
+            self.multistream = recdict['multistream']
             self.online = True
 
     async def detailembed(self, showprev=True):
@@ -75,14 +82,13 @@ class PicartoRecord(basecontext.StreamRecord):
         # If the stream is in a multi, we need to assemble the string that says
         # who they are multistreaming with.
         if self.ismulti:
-            # Pare down the list to those who are currently online
-            online = list((x for x in self.otherstreams if x["online"]))
+            online = self.otherstreams
             if online:
-                multstring += " and streaming with " + online[0]["name"]
+                multstring += " and streaming with " + online[0].name
                 if len(online) == 2:
-                    multstring += " and " + online[1]["name"]
+                    multstring += " and " + online[1].name
                 elif len(online) == 3:
-                    multstring += ", " + online[1]["name"] + ", and " + online[2]["name"]
+                    multstring += ", " + online[1].name + ", and " + online[2].name
         # print(multstring," : ", str(record['multistream']))
         myembed = discord.Embed(
             title=self.name + "'s stream is " + ("" if self.online else "not ") + "online" + multstring,

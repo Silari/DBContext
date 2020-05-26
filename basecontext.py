@@ -53,6 +53,17 @@ class ChannelNotSet(discord.DiscordException):
     pass
 
 
+class MultiClass:
+    """Holds information about the other participants in a multistream."""
+
+    __slots__ = ["adult", "name", "user_id"]
+
+    def __init__(self, adult, name, user_id):
+        self.adult = adult
+        self.name = name
+        self.user_id = user_id
+
+
 class StreamRecord:
     """Class that encapsulates a record from a stream.
 
@@ -65,11 +76,16 @@ class StreamRecord:
     gaming: bool
       Is the stream set as a gaming stream?
     multistream: list | bool
-      Stores information about multistream status. This should be interacted with via ismulti or otherstreams.
+      Stores information about multistream status. This should be interacted with via ismulti or otherstreams, as the
+      actual type varies between APIs and what call is used. Should always be a list if detailed.
     name: str
       Name of the stream.
+    offlinetime: datetime.datetime
+      Time the stream went offline. Used to determine when to call removemsg on the announcement.
     online: bool
       Is the stream online?
+    onlinetime: datetime.datetime
+      Time the stream came online/was last updated. Used to determine if announcement needs to be updated.
     preview: str
       Used by preview_url to generate the URL to watch the stream at.
     time: datetime.datetime
@@ -113,18 +129,20 @@ class StreamRecord:
         :return: Returns True if stream is an a multistream, otherwise False.
         :rtype: bool
         """
+        # Depending on the API and the call used, this could be True, False, or a(n empty) list of streams. This pares
+        # all that down into a simple True or False.
         return bool(self.multistream)
 
     @property
     def otherstreams(self):
         """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
-        list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
+        list contains dicts with user_id, name, and adult, as that's what Picarto provides.
 
-        :return: Returns an empty list if no multi, otherwise list contains dict items
+        :return: Returns an empty list if no multi, otherwise list contains MultiClass instances for each stream.
         :rtype: list
         """
         if self.detailed:
-            return [x for x in self.multistream if x['name'] != self.name]
+            return self.multistream
         return []
 
     @property
@@ -464,7 +482,8 @@ class APIContext:
         glob = await self.getglobal(guildid, 'Channel')
         return glob
 
-    async def validatechannel(self, channelid, guild):
+    @staticmethod
+    async def validatechannel(channelid, guild):
         """Resolves a Channel instance from the given id. The ID string can be a channel mention or the discord ID.
 
         :type channelid: str

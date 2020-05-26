@@ -82,10 +82,9 @@ class PiczelRecord(basecontext.StreamRecord):
                         # Trimming record down to just user_id, name, online, adult, same as what's in picarto.
                         # Normally these contain cyclic references to the other streams in their 'DBMulti' attributes,
                         # which makes these very weird. Removing all the unneeded stuff saves a lot of space.
-                        multi.append({'name': stream['username'],
-                                      'online': True,
-                                      'user_id': stream['id'],
-                                      'adult': stream['adult']})
+                        multi.append(basecontext.MultiClass(adult=stream['adult'],
+                                                            name=stream['username'],
+                                                            user_id=stream['id']))
                 self.multistream = multi  # If no one else is online this is empty and multistream is False
             else:
                 self.multistream = [True]
@@ -100,18 +99,6 @@ class PiczelRecord(basecontext.StreamRecord):
             self.multistream = []
         # We'll never call this unless the stream is live. Offline only happens when a detailed record is created.
         # self.internal['online'] = newdict['live']
-
-    @property
-    def otherstreams(self):
-        """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
-        list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
-
-        :return: Returns an empty list if no multi, otherwise list contains dict items
-        :rtype: list
-        """
-        if self.detailed:
-            return self.multistream
-        return []
 
     @property
     def preview_url(self):
@@ -150,11 +137,11 @@ class PiczelRecord(basecontext.StreamRecord):
         if self.ismulti and len(self.otherstreams):
             multstring += " and streaming with "
             if len(self.otherstreams) == 1:
-                multstring += self.otherstreams[0]['name']
+                multstring += self.otherstreams[0].name
             else:
                 for stream in self.otherstreams[0:-1]:
-                    multstring += stream['name'] + ", "
-                multstring += "and " + self.otherstreams[-1:][0]['name']
+                    multstring += stream.name + ", "
+                multstring += "and " + self.otherstreams[-1:][0].name
         # print(multstring," : ", self.otherstreams)
         myembed = discord.Embed(
             title=self.name + "'s stream is " + ("" if self.online else "not ") + "online" + multstring,
