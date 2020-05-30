@@ -87,7 +87,8 @@ class StreamRecord:
     onlinetime: datetime.datetime
       Time the stream came online/was last updated. Used to determine if announcement needs to be updated.
     preview: str
-      Used by preview_url to generate the URL to watch the stream at.
+      Used by preview_url to generate the URL to watch the stream at. Typically a URL, but possibly an ID used to
+      generate the final URL.
     time: datetime.datetime
       Time the stream went online.
     title: str

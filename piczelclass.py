@@ -106,7 +106,9 @@ class PiczelRecord(basecontext.StreamRecord):
 
         :rtype: str
         """
-        return 'https://piczel.tv/static/thumbnail/stream_' + self.preview + '.jpg' + "?msgtime=" + \
+        # Previously https://piczel.tv/static/thumbnail/stream_<ID>.jpg
+        # Now https://piczel.tv/thumbnails/stream_<ID>.jpg
+        return 'https://piczel.tv/thumbnails/stream_' + self.preview + '.jpg' + "?msgtime=" + \
                str(int(time.time()))
 
     @property
