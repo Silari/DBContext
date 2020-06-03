@@ -73,7 +73,7 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = 1.0  # Current bot version
+version = 1.1  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
