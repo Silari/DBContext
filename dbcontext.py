@@ -3,6 +3,7 @@
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
+#  Maybe via 'if client.user' - will be None if not logged in?
 
 # TESTING NOTES
 
@@ -35,6 +36,7 @@
 # gets changed. So 'add stream <channel>' would delete the old message and make a
 # new one in the proper channel.
 #  Can't move, would need to send new and delete old. Not sure it's worth it
+# # I could probably do it for streamoption at least, so it's not a ton at once.
 
 # Maybe check on_message_deleted if it was one of our savedmsg? Then could clear
 # it from our list immediately to allow re-announcing.
@@ -71,14 +73,24 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = 1.0  # Current bot version
+version = 1.1  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
 changelog = '''1.1 Changelog:
-
+Added StreamRecord and subclasses to handle differences between the API.
+Piczel output changed slightly to match Picarto
+Messages in the temp offline state are edited to match the fully offline state: 'Stream lasted'
+Fixes to the notify system
+ Bot will warn if it isn't able to assign the notify role due to position.
+ notifyon command will remake the message if it isn't found.
+Refactored updatemsg to return early if update isn't needed. Corrected bug where it would quit early instead of skipping
+ to the next server.
+Lots of fixes for style and general cleanup of code. Documentation added to most functions.
+Added restart command, which saves tempdata same as quit.
+detailembed for all contexts now uses streammsg instead of it's own message.
 '''
 
 myloop = asyncio.get_event_loop()
@@ -128,11 +140,43 @@ newcont = {}
 contfuncs = {}
 
 
+async def resolveuser(userid, guild=None):
+    """Resolves a Member or User instance from the given id. The ID can be in 'username#0000' format or a user
+    mention or the discord ID.
+
+    :type userid: str
+    :type guild: discord.Guild
+    :rtype: discord.Member | discord.User | None
+    :param userid: A string with the username and discriminator in 'username#0000' format, or a user mention string, or
+     the user id.
+    :param guild: discord Guild instance to search in. If not provided return can only be a User instance.
+    :return: If guild is provided, searches the guild for the given userid and returns their Member instance, or None if
+     not found. If guild is not provided, searches the Client users list and returns the found User instance, or None if
+     not found.
+    """
+    # This is a mention string so we need to remove the mention portion of it.
+    if userid.startswith('<@!'):
+        userid = userid[3:-1]
+    elif userid.startswith('<@'):
+        userid = userid[2:-1]
+    if guild:
+        if '#' in userid:
+            founduser = discord.utils.find(lambda m: str(m) == userid, guild.members)
+        else:
+            founduser = discord.utils.find(lambda m: str(m.id) == userid, guild.members)
+    else:
+        if '#' in userid:
+            founduser = discord.utils.find(lambda m: str(m) == userid, client.users)
+        else:
+            founduser = discord.utils.find(lambda m: str(m.id) == userid, client.users)
+    return founduser
+
+
 class LimitedClient:
     """Allows modules limited access to needed Client functionality."""
 
     def __init__(self, parentclient):
-        """
+        """Allows modules limited access to needed Client functionality.
 
         :type parentclient: discord.Client
         :param parentclient: A Client instance we use to create our LimitedClient.
@@ -141,6 +185,9 @@ class LimitedClient:
         self.get_channel = parentclient.get_channel
         self.wait_until_ready = parentclient.wait_until_ready
         self.is_closed = parentclient.is_closed
+        # This is a custom function that helps resolve a Member/User instance from the username#0000 or ID. It uses the
+        # users property of client which we don't want exposed.
+        self.resolveuser = resolveuser
 
 
 fakeclient = LimitedClient(client)
@@ -606,7 +653,7 @@ async def managehandler(command, message):
         notfound = set()
         managerole = await getuserrole(message.guild)
         for username in command[1:]:
-            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            founduser = await resolveuser(username, message.guild)
             if founduser:
                 if founduser.bot:
                     noperm.add(username + ":bot")  # User is a bot, never allowed
@@ -736,6 +783,11 @@ async def managehandler(command, message):
         if message.channel_mentions:  # We can't do anything if they didn't include a channel
             # We need to set this channel to be talkable by anyone with the role.
             for channel in message.channel_mentions:
+                # Validate the mentions are in this guild. It SEEMS either Discord or discord.py doesn't include them
+                # anyway, but just to be sure we're still gonna check it.
+                if channel.guild != message.guild:
+                    await message.channel.send("I could not find " + channel.name + " in this server.")
+                    continue
                 msg = channel.name + ": "
                 # Set everyone role to be able to read but not send in the channel
                 try:
@@ -767,7 +819,7 @@ async def managehandler(command, message):
         msg = ""
         notfound = set()
         for username in command[1:]:
-            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            founduser = await resolveuser(username, message.guild)
             if founduser:
                 await founduser.add_roles(managerole, reason="Added user to bot management.")
                 added.add(username)
@@ -785,7 +837,7 @@ async def managehandler(command, message):
         msg = ""
         notfound = set()
         for username in command[1:]:
-            founduser = discord.utils.find(lambda m: str(m) == username, message.channel.guild.members)
+            founduser = await resolveuser(username, message.guild)
             if founduser:
                 await founduser.remove_roles(managerole, reason="Removed user from bot management.")
                 removed.add(username)
@@ -911,13 +963,14 @@ async def debughandler(command, message):
             msg = await renamerole(guild)
             print(msg)  # await message.channel.send(msg)
         return
-    elif command[0] == 'checkroles':
-        for guild in client.guilds:
-            foundrole = discord.utils.find(lambda m: m.name == client.user.name, guild.roles)
-            if foundrole:
-                print(guild.name, foundrole.name)  # await message.channel.send(msg)
-            else:
-                print(guild.name, "No role")
+    elif command[0] == 'testresolve':
+        ret = []
+        for comm in command[1:]:
+            found = await resolveuser(comm)
+            ret.append(found)
+            found = await resolveuser(comm, message.guild)
+            ret.append(found)
+        print("testresolve", ret)
         return
     elif command[0] == 'testtop':
         msg = "Roles:"

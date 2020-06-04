@@ -46,26 +46,35 @@ def getstream(recordid):
 
 class PiczelRecord(basecontext.StreamRecord):
 
-    values = ['adult', 'isPrivate?', 'title', 'viewers']
+    __slots__ = []
+
+    values = ['adult', 'title', 'viewers']
     # Piczel keys for online/offline streams. DBMulti is only present if in_multi is True. Contains addl PiczelRecords
     # values2 = ['DBMulti', 'adult', 'banner', 'banner_link', 'description', 'follower_count', 'id', 'in_multi',
     #            'isPrivate?', 'live', 'live_since', 'offline_image', 'parent_streamer', 'preview', 'recordings',
     #            'rendered_description', 'settings', 'slug', 'tags', 'title', 'user', 'username', 'viewers']
 
     upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
+    streamurl = "http://piczel.tv/watch/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(record))
 
     def __init__(self, recdict, detailed=False):
+        if not recdict['in_multi']:  # Non multi-stream records are identical whether detailed or not.
+            detailed = True
         super().__init__(recdict, detailed)
-        self.internal['avatar'] = recdict['user']['avatar']['url']
-        self.internal['name'] = recdict['username']
-        self.internal['online'] = recdict['live']
-        self.internal['preview'] = recdict['id']
+        self.gaming = False
+        self.avatar = recdict['user']['avatar']['url']
+        self.name = recdict['username']
+        self.online = recdict['live']
+        self.preview = str(recdict['id'])
         # Time is in UTC, convert to a datetime and specify that it's UTC.
-        if not detailed:
-            self.internal['time'] = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")\
+        if self.online:
+            # live_since exists but is none in offline streams, so this would fail.
+            self.time = datetime.datetime.strptime(recdict['live_since'], "%Y-%m-%dT%H:%M:%S.000Z")\
                 .replace(tzinfo=datetime.timezone.utc)
-        self.internal['viewers_total'] = recdict['follower_count']
-        if recdict['in_multi']:
+        else:
+            self.time = None
+        self.viewers_total = recdict['follower_count']
+        if recdict['in_multi']:  # Is this a multistream?
             if detailed:  # We need to setup our multistream data. Only available in a detailed record.
                 multi = []
                 for stream in recdict['DBMulti'][1:]:  # First record is a copy of our record, ignore that.
@@ -73,64 +82,33 @@ class PiczelRecord(basecontext.StreamRecord):
                         # Trimming record down to just user_id, name, online, adult, same as what's in picarto.
                         # Normally these contain cyclic references to the other streams in their 'DBMulti' attributes,
                         # which makes these very weird. Removing all the unneeded stuff saves a lot of space.
-                        multi.append({'name': stream['username'],
-                                      'online': True,
-                                      'user_id': stream['id'],
-                                      'adult': stream['adult']})
-                self.internal['multistream'] = multi  # If no one else is online this is empty and multistream is False
+                        multi.append(basecontext.MultiClass(adult=stream['adult'],
+                                                            name=stream['username'],
+                                                            user_id=stream['id']))
+                self.multistream = multi  # If no one else is online this is empty and multistream is False
             else:
-                self.internal['multistream'] = [True]
+                self.multistream = [True]
         else:
-            self.internal['multistream'] = []
+            self.multistream = []
 
     def update(self, newdict):
         super().update(newdict)
         if newdict['in_multi']:
-            self.internal['multistream'] = [True]
+            self.multistream = [True]
         else:
-            self.internal['multistream'] = []
+            self.multistream = []
         # We'll never call this unless the stream is live. Offline only happens when a detailed record is created.
         # self.internal['online'] = newdict['live']
 
     @property
-    def detailed(self):
-        """Is the record a detailed record?
-
-        :rtype: bool
-        """
-        # There's no difference between regular and detailed records unless they're a multistream.
-        if not self.multistream:
-            return True
-        # If it is a multistream, check if it was created as a detailed stream.
-        return self.internal['detailed']
-
-    @property
-    def gaming(self):
-        """Is the stream set as a gaming stream? Not supported by Piczel.
-
-        :rtype: bool
-        """
-        return False
-
-    @property
-    def otherstreams(self):
-        """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
-        list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
-
-        :return: Returns an empty list if no multi, otherwise list contains dict items
-        :rtype: list
-        """
-        if self.internal['detailed']:
-            return self.internal['multistream']
-        return []
-
-    @property
-    def preview(self):
+    def preview_url(self):
         """URL for the stream preview. We add a time property to the end to get around caching.
 
         :rtype: str
         """
-        return 'https://piczel.tv/static/thumbnail/stream_' + str(self.internal['preview']) + '.jpg' + "?msgtime=" +\
+        # Previously https://piczel.tv/static/thumbnail/stream_<ID>.jpg
+        # Now https://piczel.tv/thumbnails/stream_<ID>.jpg
+        return 'https://piczel.tv/thumbnails/stream_' + self.preview + '.jpg' + "?msgtime=" + \
                str(int(time.time()))
 
     @property
@@ -141,34 +119,7 @@ class PiczelRecord(basecontext.StreamRecord):
         :rtype: tuple[str, int]
         :return: A tuple with a string describing what we're counting, and an integer with the count.
         """
-        return "Followers:", self.internal['viewers_total']
-
-    async def simpembed(self, snowflake=None, offline=False):
-        """The embed used by the noprev message type. This is general information about the stream, but not everything.
-        Users can get a more detailed version using the detail command, but we want something simple for announcements.
-
-        :type snowflake: int
-        :type offline: bool
-        :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
-        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
-        :return: a discord.Embed representing the current stream.
-        """
-        description = self.title
-        value = "Multistream: No"
-        if self.multistream:
-            value = "Multistream: Yes"
-        if not snowflake:
-            embtitle = self.name + " has come online!"
-        else:
-            embtitle = await self.streammsg(snowflake, offset=offline)
-        noprev = discord.Embed(title=embtitle, url=PiczelContext.streamurl.format(self.name), description=description)
-        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
-                         value="Viewers: " + str(self.viewers),
-                         inline=True)
-        noprev.add_field(name=value, value="Private: " + ("Yes" if self.internal['isPrivate?'] else "No"), inline=True)
-        noprev.set_thumbnail(url=self.avatar)
-        return noprev
+        return "Followers:", self.viewers_total
 
     async def detailembed(self, showprev=True):
         """This generates the embed to send when detailed info about a stream is requested. More information is provided
@@ -181,31 +132,29 @@ class PiczelRecord(basecontext.StreamRecord):
         """
         # This generates the embed to send when detailed info about a stream is
         # requested. The actual message is handled by basecontext's detailannounce
-        # TODO if not detailed, make this call makeembed if showprev, simpleembed if not. It SHOULDN'T be used but if it
-        #  is called at least it'll work.
         description = self.title
         multstring = ""
         # If the stream is in a multi, we need to assemble the string that says who they are multistreaming with. This
-        # is only available in a detailed record.
-        if self.multistream:
+        # is only available in a detailed record. With a non-detailed record, it will not include multistream info.
+        if self.ismulti and len(self.otherstreams):
             multstring += " and streaming with "
             if len(self.otherstreams) == 1:
-                multstring += self.otherstreams[0]['name']
+                multstring += self.otherstreams[0].name
             else:
                 for stream in self.otherstreams[0:-1]:
-                    multstring += stream['name'] + ", "
-                multstring += "and " + self.otherstreams[-1:][0]['name']
-        # print(multstring," : ", str(record['multistream']))
+                    multstring += stream.name + ", "
+                multstring += "and " + self.otherstreams[-1:][0].name
+        # print(multstring," : ", self.otherstreams)
         myembed = discord.Embed(
             title=self.name + "'s stream is " + ("" if self.online else "not ") + "online" + multstring,
             url="https://piczel.tv/" + self.name, description=description)
         myembed.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
                           value="Followers: " + str(self.total_views[1]), inline=True)
         if self.online:
-            myembed.add_field(name="Streaming for " + await PiczelContext.streamtime(self.time),
+            myembed.add_field(name=await self.streammsg(None),
                               value="Viewers: " + str(self.viewers))
         if showprev:
-            myembed.set_image(url=self.preview)
+            myembed.set_image(url=self.preview_url)
         # We've had issues with the avatar location changing. If it does again,
         # announces will still work until we can fix it, just without the avatar.
         if self.avatar:

@@ -26,6 +26,8 @@ import time  # Used to add a time stamp to images to avoid caches.
 class Updated:
     """Represents if the last API update succeeded, and counts contiguous failures."""
 
+    __slots__ = ['failed']
+
     def __init__(self):
         self.failed = 0
 
@@ -51,123 +53,119 @@ class ChannelNotSet(discord.DiscordException):
     pass
 
 
-class StreamRecord:
-    """Class that encapsulates a record from a stream."""
+class MultiClass:
+    """Holds information about the other participants in a multistream."""
 
+    __slots__ = ["adult", "name", "user_id"]
+
+    def __init__(self, adult, name, user_id):
+        self.adult = adult
+        self.name = name
+        self.user_id = user_id
+
+
+class StreamRecord:
+    """Class that encapsulates a record from a stream.
+
+    adult: bool
+      Is the stream marked Adult?
+    avatar: str
+      URL for the avatar of the stream.
+    detailed: bool
+      Is the record a detailed record?
+    gaming: bool
+      Is the stream set as a gaming stream?
+    multistream: list[MultiClass] | bool
+      Stores information about multistream status. This should be interacted with via ismulti or otherstreams, as the
+      actual type varies between APIs and what call is used. Should always be a list if detailed.
+    name: str
+      Name of the stream.
+    offlinetime: datetime.datetime
+      Time the stream went offline. Used to determine when to call removemsg on the announcement.
+    online: bool
+      Is the stream online?
+    onlinetime: datetime.datetime
+      Time the stream came online/was last updated. Used to determine if announcement needs to be updated.
+    preview: str
+      Used by preview_url to generate the URL to watch the stream at. Typically a URL, but possibly an ID used to
+      generate the final URL.
+    time: datetime.datetime
+      Time the stream went online.
+    title: str
+      Channel title/description.
+    viewers: int
+      Number of people viewing the stream.
+    """
+
+    # __slots__ = ['internal', 'offlinetime', 'onlinetime']
+    __slots__ = ['adult', 'avatar', 'detailed', 'gaming', 'multistream', 'name',
+                 'offlinetime', 'online', 'onlinetime', 'preview', 'time',
+                 'title', 'viewers', 'viewers_total']
     # List of values to retain from the starting dictionary.
     # Generally subclasses are going to overwrite this, but this is a basic list of what we generally expect to exist.
     values = ['adult', 'avatar', 'gaming', 'multistream', 'name', 'online',
               'preview', 'time', 'title', 'viewers_total', 'viewers']
     # List of values to update when given a new dictionary. Several items are static so don't need to be updated.
     upvalues = ['adult', 'gaming', 'multistream', 'viewers']
+    streamurl = ''
 
     # noinspection PyTypeChecker
     def __init__(self, recdict, detailed=False):
-        self.internal = {k: recdict[k] for k in self.values}
-        self.internal['detailed'] = detailed
+        # self.internal = {k: recdict[k] for k in self.values}
+        for name in self.values:
+            setattr(self, name, recdict[name])
+        self.detailed = detailed
         self.offlinetime = None  # type: datetime.datetime # Time since stream went offline.
         self.onlinetime = None  # type: datetime.datetime # Time since last stream update.
 
     def update(self, newdict):
-        self.internal.update({k: newdict[k] for k in self.upvalues})
+        # self.internal.update({k: newdict[k] for k in self.upvalues})
+        for name in self.upvalues:
+            setattr(self, name, newdict[name])
 
     @property
-    def adult(self):
-        """Is the stream marked Adult?
-
-        :rtype: bool
-        """
-        return self.internal['adult']
-
-    @property
-    def avatar(self):
-        """URL for the avatar of the stream.
-
-        :rtype: str
-        """
-        return self.internal['avatar']
-
-    @property
-    def detailed(self):
-        """Is the record a detailed record?
-
-        :rtype: bool
-        """
-        return self.internal['detailed']
-
-    @property
-    def gaming(self):
-        """Is the stream set as a gaming stream?
-
-        :rtype: bool
-        """
-        return self.internal['gaming']
-
-    @property
-    def multistream(self):
+    def ismulti(self):
         """Is the stream a multistream?
 
         :return: Returns True if stream is an a multistream, otherwise False.
         :rtype: bool
         """
-        return bool(self.internal['multistream'])
+        # Depending on the API and the call used, this could be True, False, or a(n empty) list of streams. This pares
+        # all that down into a simple True or False.
+        return bool(self.multistream)
 
     @property
     def otherstreams(self):
         """Is the stream a multistream? Empty list if not, otherwise a list of multistream participants. Currently the
-        list contains dicts with user_id, name, online, adult, as that's what Picarto provides.
+        list contains dicts with user_id, name, and adult, as that's what Picarto provides.
 
-        :return: Returns an empty list if no multi, otherwise list contains dict items
+        :return: Returns an empty list if no multi, otherwise list contains MultiClass instances for each stream.
         :rtype: list
         """
-        if self.internal['detailed']:
-            return [x for x in self.internal['multistream'] if x['name'] != self.name]
+        if self.detailed:
+            return self.multistream
         return []
 
     @property
-    def name(self):
-        """Name of the stream.
-
-        :rtype: str
-        """
-        return self.internal['name']
-
-    @property
-    def online(self):
-        """Is the stream online?
-
-        :rtype: bool
-        """
-        return self.internal['online']
-
-    @property
-    def preview(self):
+    def preview_url(self):
         """URL for the stream preview. We add a time property to the end to get around caching.
 
         :rtype: str
         """
-        return self.internal['preview'] + "?msgtime=" + str(int(time.time()))
+        return self.preview + "?msgtime=" + str(int(time.time()))
 
     @property
-    def time(self):
+    def duration(self):
         """Length of time the stream has been running. internal['time'] must be a datetime.datetime which is used to
         calculate the stream length.
 
         :rtype: datetime.timedelta
         """
         try:
-            return datetime.datetime.now(datetime.timezone.utc) - self.internal['time']
-        except KeyError:
+            return datetime.datetime.now(datetime.timezone.utc) - self.time
+        except AttributeError:
             pass
         return datetime.timedelta()
-
-    @property
-    def title(self):
-        """Channel title/description.
-
-        :rtype: str
-        """
-        return self.internal['title']
 
     @property
     def total_views(self):
@@ -177,28 +175,23 @@ class StreamRecord:
         :rtype: tuple[str, int]
         :return: A tuple with a string describing what we're counting, and an integer with the count.
         """
-        return "Total views:", self.internal['viewers_total']
-
-    @property
-    def viewers(self):
-        """Number of people viewing the stream.
-
-        :rtype: int
-        """
-        return self.internal['viewers']
+        return "Total views:", self.viewers_total
 
     async def streammsg(self, snowflake, offset=False):
         """Function to generate a string to say how long stream has lasted.
 
-        :type snowflake: int
+        :type snowflake: int | None
         :type offset: bool
         :rtype: str
-        :param snowflake: Integer representing a discord Snowflake
+        :param snowflake: Integer representing a discord Snowflake, or None to only use the stored time.
         :param offset: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a string stating the time the stream has ran for.
         """
         # Find the duration of the stream.
-        dur = await APIContext.longertime(snowflake, self.time)
+        if snowflake:  # If a snowflake was given instead of None
+            dur = await APIContext.longertime(snowflake, self.duration)
+        else:
+            dur = self.duration
         # If stream is offline, we adjust the time to account for the waiting
         # period before we marked it offline.
         if offset:
@@ -226,10 +219,25 @@ class StreamRecord:
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
-        raise NotImplementedError("StreamRecord.simpembed must be overridden.")
+        description = self.title
+        ismulti = "Multistream: No"
+        if self.ismulti:
+            ismulti = "Multistream: Yes"
+        if not snowflake:
+            embtitle = self.name + " has come online!"
+        else:
+            embtitle = await self.streammsg(snowflake, offset=offline)
+        noprev = discord.Embed(title=embtitle, url=self.streamurl.format(self.name), description=description)
+        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
+                         value="Gaming: " + ("Yes" if self.gaming else "No"),
+                         inline=True)
+        noprev.add_field(name=ismulti, value="Viewers: " + str(self.viewers), inline=True)
+        noprev.set_thumbnail(url=self.avatar)
+        return noprev
 
     async def makeembed(self, snowflake=None, offline=False):
         """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
+        Generally this doesn't need to be overridden as it just adds the preview, which the preview property handles.
 
         :type snowflake: int
         :type offline: bool
@@ -240,7 +248,7 @@ class StreamRecord:
         """
         # Simple embed is the same, we just need to add a preview image. Save code
         myembed = await self.simpembed(snowflake, offline)
-        myembed.set_image(url=self.preview)  # Add your image here
+        myembed.set_image(url=self.preview_url)  # Add your image here
         return myembed
 
     async def detailembed(self, showprev=True):
@@ -412,7 +420,6 @@ class APIContext:
         """
         raise NotImplementedError("getrecordid must be overridden in subclass!")
 
-    # Get saved message id
     async def getmsgid(self, guildid, recordid):
         """Gets the snowflake for the message we used to announce the stream in the guild.
 
@@ -476,10 +483,28 @@ class APIContext:
         glob = await self.getglobal(guildid, 'Channel')
         return glob
 
-    # Gets the given option by searching stream overrides, guild override,
-    # guild setting, or global settings (which checks for default settings)
+    @staticmethod
+    async def validatechannel(channelid, guild):
+        """Resolves a Channel instance from the given id. The ID string can be a channel mention or the discord ID.
+
+        :type channelid: str
+        :type guild: discord.Guild
+        :rtype: discord.Member | discord.User | None
+        :param channelid: A string with the channel mention string, or the channel id.
+        :param guild: discord Guild instance to search in. If not provided return can only be a User instance.
+        :return: Searches the guild for the given channelid and returns the Channel instance, or None if not found.
+        """
+        # This is a mention string so we need to remove the mention portion of it.
+        if channelid.startswith('<#'):
+            channelid = channelid[2:-1]
+        if '#' in channelid:
+            founduser = discord.utils.find(lambda m: str(m) == channelid, guild.channels)
+        else:
+            founduser = discord.utils.find(lambda m: str(m.id) == channelid, guild.channels)
+        return founduser
+
     async def getoption(self, guildid, option, recordid=None):
-        """Gets the value for the option given, checking in order for on set on the stream, the module, or globally.
+        """Gets the value for the option given, checking in order for one set on the stream, the module, or globally.
 
         :type guildid: int
         :type option: str
@@ -538,7 +563,6 @@ class APIContext:
             mydata["Servers"][guildid][optname] = setting
         return True
 
-    # Sets the override option for the given stream
     async def setstreamoption(self, guildid, optname, recordid, setting=None):
         """Sets or clears an option for the given stream for the given server.
 
@@ -572,8 +596,6 @@ class APIContext:
         mydata['COver'][guildid][recordid]['Option'][optname] = setting
         return True
 
-    # Function to get length of time a stream was running for, based on a message
-    # snowflake.
     @staticmethod
     async def streamtime(dur, offset=None, longtime=False):
         """Function to generate a string to say how long stream has lasted.
@@ -621,10 +643,7 @@ class APIContext:
         :param rectime: A full stream record as returned by the API
         :return: The longer duration between when the snowflake was created and the time contained in the record.
         """
-        if snowflake:
-            dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
-        else:
-            dur = datetime.timedelta()
+        dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
         return max(rectime, dur)
 
     async def makemsg(self, record):
@@ -645,18 +664,20 @@ class APIContext:
 
         :type recordid: str
         :type headers: dict
-        :rtype: StreamRecord
+        :rtype: StreamRecord | bool | int | None
         :param recordid: String with the name of the stream, used to format the URL.
         :param headers: Headers to be passed on to the API call.
-        :return: A dict with the information for the stream, exact content depends on the API.
+        :return: A dict with the information for the stream, exact content depends on the API. If acallapi failed, the
+        error it returned is returned.
         """
-        return self.recordclass(await self.acallapi(self.channelurl.format(recordid), headers), True)
+        record = await self.acallapi(self.channelurl.format(recordid), headers)
+        if record:  # We succeeded in calling the API, so transform the data into a StreamRecord.
+            return self.recordclass(record, True)
+        else:  # The call failed for some reason, so pass the error along.
+            return record
 
     agetstreamoffline = agetstream
 
-    # Handles calling the API at the given URL and interpreting the result as
-    # JSON. No changes are made to the data, so it can be used by anything that
-    # needs a simple GET ran.
     async def acallapi(self, url, headers=None):
         """Calls the API at the given URL, with optional headers, and interprets the result via the JSON library.
         Returns the interpreted JSON on success, None if the attempt timed out, 0 if the API says the name wasn't found,
@@ -664,10 +685,11 @@ class APIContext:
 
         :type url: str
         :type headers: dict
-        :rtype: dict | bool | int
+        :rtype: dict | bool | int | None
         :param url: URL to call
         :param headers: Headers to send with the request
-        :return: The interpreted JSON result of the call, or 0 or False.
+        :return: The interpreted JSON result of the call if the call succeeded. On failure, the return will None if the
+        call timed out, 0 if a 404 error occured, or False for any other error.
         """
         # header is currently only needed by twitch, where it contains the API
         # key. For other callers, it is None.
@@ -679,7 +701,7 @@ class APIContext:
                     buff = await resp.text()
                     # print(buff)
                     if buff:
-                        record = json.loads(buff)  # Interpret the received JSON
+                        record = json.loads(buff)  # Interpret the received data as JSON
                 elif resp.status == 404:  # Not found
                     record = 0  # 0 means no matching record - still false
                 elif resp.status == 401:  # Unauthorized
@@ -724,7 +746,7 @@ class APIContext:
         :rtype: tuple[bool, dict]
         :return: True on success, False if any error occurs.
         """
-        updated = False
+        updated = False  # Default value for success/failed
         newparsed = {}
         buff = await self.acallapi(self.apiurl)
         if buff:  # Any errors would return False (or None) instead of a buffer
@@ -735,8 +757,6 @@ class APIContext:
         self.lastupdate.record(updated)
         return updated, newparsed
 
-    # This is started as a background task by dbcontext. It can be empty but
-    # should exist.
     async def updatewrapper(self, conn):
         """Sets a function to be run continuously every 60 seconds until the bot is closed. Handles errors that
         propagate outside of the called function to ensure the task doesn't stop prematurely.
@@ -758,7 +778,9 @@ class APIContext:
                         self.parsed[stream] = self.recordclass(newrecs[stream])
                 else:
                     print("Initial update of", self.name, "failed.")
-                    if updated == 0:
+                    if updated is False:
+                        pass  # Generic error, do nothing here.
+                    elif updated == 0:
                         print("Call had a 404 error.")
                     elif updated is None:
                         print("Call timed out.")
@@ -781,10 +803,9 @@ class APIContext:
             [item for sublist in [self.mydata["SavedMSG"][k] for k in self.mydata["SavedMSG"]] for item in sublist])
         # print("savedstreams",savedstreams)
         # Note that if the initial update fails, due to the API being down most
-        # likely, this WILL remove all stream messages. Waiting until the API
-        # updates successfully might be the best option, but that'd require too
-        # much reworking of the update task, and this way they'll get announced when
-        # the API comes back.
+        # likely, this WILL remove all stream messages. Waiting until the API updates successfully might be the best
+        # option, but that'd require too much reworking of the update task, and this way they'll get announced when
+        # the API comes back. Also with the savedata function now implemented it'll skip the first update anyway.
         for stream in savedstreams:
             # Step 2: Check if the stream is offline: not in self.parsed.
             if stream not in self.parsed:  # No longer online
@@ -875,10 +896,12 @@ class APIContext:
             for cur in curstreams:
                 # Get the current record from our dict.
                 record = self.parsed[cur]
+                # TODO Change this to only update if stream is being watched? I could keep a separate timer that updates
+                #  the unwatched streams every X minutes?
                 # Update the record with the new information.
                 record.update(newparsed[cur])
                 if cur in mydata['AnnounceDict']:  # Someone is watching this stream
-                    record.offlinetime = None
+                    record.offlinetime = None  # Stream is online so remove the offlinetime value.
                     if record.onlinetime:  # This will exist most of the time.
                         # If it's been longer than updatetime seconds, update the stream
                         if (curtime - record.onlinetime) > datetime.timedelta(seconds=updatetime):
@@ -932,8 +955,7 @@ class APIContext:
                     continue
                 msgopt = await self.getoption(server, "MSG", recordid)
                 # Either the MSG option is not set, or is set to edit, which is the default
-                # We should edit the message to say they're not online
-                if msgopt == "edit":
+                if msgopt == "edit":  # We should edit the message to say they're not online
                     channel = await self.resolvechannel(server, recordid)
                     if channel:  # We may not have a channel if we're no longer in the guild/channel
                         oldmess = await channel.fetch_message(msgid)
@@ -944,15 +966,13 @@ class APIContext:
                             if 'image' in newembed:  # Is there a stream preview?
                                 # Delete preview as they're not online
                                 del newembed['image']
-                            # If we have the record, this is an online edit so we
-                            # can update the time.
+                            # If we have the record, this is an online edit so we can update the time.
                             if record:
                                 # We use oldest id to get the longest possible time this stream ran
                                 # This matches how updatemsg sets the time.
                                 newembed['title'] = await record.streammsg(oldestid, offset=True)
-                            # If we don't, this is an offline edit. We can't get
-                            # the time stream ran for, so just edit the current
-                            # stored time and use that.
+                            # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
+                            # the current stored time and use that.
                             else:
                                 newembed['title'] = newembed['title'].replace("running", "lasted")
                             newembed = discord.Embed.from_dict(newembed)
@@ -985,6 +1005,10 @@ class APIContext:
                 # caught the obvious ones, so lets log this to see what happened.
                 print(self.name, "remove message HTTPException:", repr(e))
                 pass
+            except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                pass  # Nothing we can do but ignore it. May setup retry logic later
+            except aiohttp.ClientConnectorError:  # Connection failed
+                pass  # Again, not much to do.
             # Remove the msg from the list, we won't update it anymore.
             # This still happens for static messages, which aren't edited or removed
             try:
@@ -1044,14 +1068,15 @@ class APIContext:
                 channel = await self.resolvechannel(server, recordid)
                 # Guild may no longer have an announce channel set, or we're
                 # not in the guild any more.
-                if channel:  # If we found the channel the saved message is in
+                if channel:
+                    # Try and find out message in the channel.
                     oldmess = await channel.fetch_message(msgid)
             except KeyError as e:
                 # This used to happen if there wasn't a saved message, or if
                 # the server removed it's announce channel. Both of those are
                 # now handled by helper functions, so this shouldn't happen.
                 print("updatemsg keyerror!", repr(e))  # Log it
-                pass
+                continue  # We can just skip to the next server immediately
             except discord.NotFound:
                 # The message wasn't found, probably deleted. Remove saved id
                 # Note this won't happen if we're not in the guild/channel or
@@ -1063,13 +1088,13 @@ class APIContext:
                     del mydata['SavedMSG'][server][recordid]
                 except KeyError:
                     pass
-                pass
+                continue  # We can just skip to the next server immediately
             except discord.HTTPException:
                 # General HTTP errors from command. Not much we can do here.
                 # print("updatemsg2",repr(e))
-                pass
+                continue  # We can just skip to the next server immediately
             if oldmess:
-                msg = oldmess.content
+                msg = oldmess.content  # The text of the message - always present.
                 # If the stream appears to be offline now, edit the announcement slightly.
                 if record.offlinetime:
                     msg = msg.replace("has come online! Watch them", "was online")
@@ -1078,21 +1103,24 @@ class APIContext:
                     # hurt anything if the message is already correct.
                     msg = msg.replace("was online", "has come online! Watch them")
                 if typeopt == "noprev":
-                    await oldmess.edit(content=msg, embed=noprev, suppress=False)
+                    thisembed = noprev
                 else:
                     # Need to check if stream is adult, and what to do if it is.
-                    isadult = record.adult
                     adult = await self.getoption(server, 'Adult', recordid)
-                    if isadult and (adult != 'showadult'):
+                    if record.adult and (adult != 'showadult'):
                         # hideadult or noadult, same as noprev option
-                        await oldmess.edit(content=msg, embed=noprev, suppress=False)
+                        thisembed = noprev
                     else:
                         # Otherwise show the preview
                         # print("updatemsg adding embed")
-                        await oldmess.edit(content=msg, embed=myembed, suppress=False)
+                        thisembed = myembed
+                try:
+                    await oldmess.edit(content=msg, embed=thisembed, suppress=False)
+                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                    pass  # Nothing we can do but ignore it and retry it later
+                except aiohttp.ClientConnectorError:  # Connection failed
+                    pass  # Again, not much to do.
 
-    # Announce a stream is online. oneserv only sends the message on the given
-    # server, otherwise find all servers that should announce that name.
     async def announce(self, record, oneserv=None):
         """Announce a stream. Limit announcement to 'oneserv' if given.
 
@@ -1105,8 +1133,8 @@ class APIContext:
         # Make the embeds and the message for our announcement - done once no
         # matter how many servers we need to send it too. Note we should always
         # have at least one server, or else announce wouldn't have been called.
-        myembed = await record.makeembed()
-        noprev = await record.simpembed()
+        myembed = await record.makeembed()  # Default style
+        noprev = await record.simpembed()  # noprev style
         msg = await self.makemsg(record)
         recordid = record.name
         # We're going to iterate over a list of servers to announce on
@@ -1203,16 +1231,8 @@ class APIContext:
                 msg += "\n**Last attempt to update API also failed. API may be down.**"
             await channel.send(msg)
             return
-        if record == 0:  # API call returned a Not Found response
-            msg = "The API found no users by the name. Check the name and spelling for errors and try again."
-            # API being down wouldn't be the cause of this, so for now we're
-            # commenting these out. May reinstate them later.
-            # if not self.lastupdate : #Note if the API update failed
-            #    msg += "\n**Last attempt to update API failed. API may be down.**"
-            await channel.send(msg)
-            return
         # Non-timeout error happened.
-        if not record:
+        if record is False:
             try:
                 msg = "Sorry, I failed to load information about that channel due to an error. Please wait and try " \
                       "again later. "
@@ -1222,6 +1242,13 @@ class APIContext:
             except KeyError:  # Nothing left to have this but keep it for now.
                 pass
             return  # Only announce on that server, then stop.
+        if record == 0:  # API call returned a Not Found response
+            msg = "The API found no users by the name. Check the name and spelling for errors and try again."
+            # API being down wouldn't be the cause of this, so we're commenting these out. May reinstate them later.
+            # if not self.lastupdate :  # Note if the API update failed
+            #    msg += "\n**Last attempt to update API failed. API may be down.**"
+            await channel.send(msg)
+            return
         showprev = True
         if record.adult and (not (await self.getoption(oneserv, 'Adult', recordid) == 'showadult')):
             # We need to not include the preview from the embed.
@@ -1249,6 +1276,11 @@ class APIContext:
             if command[0] == 'channel':
                 # This sets the channel to perform announcements/bot responses to.
                 if message.channel_mentions:
+                    # Ensure the mentioned channel is in this guild, or else we don't accept it.
+                    if message.channel_mentions[0].guild != message.guild:
+                        await message.channel.send("I could not find " + message.channel_mentions[0].name +
+                                                   " in this server.")
+                        return
                     # Set the mentioned channel as the announcement channel
                     channelid = message.channel_mentions[0].id
                 else:
@@ -1398,6 +1430,10 @@ class APIContext:
         # We're going to be setting a stream override, so make sure the
         # needed dicts are in place.
         if message.channel_mentions:  # Channel mention, so make an override
+            if message.channel_mentions[0].guild != message.guild:
+                await message.channel.send("I could not find " + message.channel_mentions[0].name +
+                                           " in this server.")
+                return
             if 'COver' not in mydata:  # We need to make the section
                 mydata['COver'] = {}  # New dict
             if message.guild.id not in mydata['COver']:
@@ -1419,11 +1455,10 @@ class APIContext:
             # Need to match case with the API name, so test it first
             # If we already are watching it, it must be the correct name.
             # OR if the stream is in parsed, it must be the correct name.
-            elif ((newstream not in mydata["AnnounceDict"]) and
-                  (newstream not in self.parsed)):
+            elif (newstream not in mydata["AnnounceDict"]) and (newstream not in self.parsed):
                 newrecord = await self.agetstreamoffline(newstream)
-                # print(newrecordid)
-                if not newrecordid:
+                # print(newrecord)
+                if not newrecord:
                     notfound.add(newstream)
                 else:
                     newrecordid = newrecord.name
@@ -1631,8 +1666,12 @@ class APIContext:
             elif newopt.startswith('<#') and newopt.endswith('>'):
                 # Technically this might not be a valid channel if someone just types it up manually, though an
                 # actual channel mention will always be a real channel, even if the bot can't necessarily see it
-                await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
-                setopt.add(newopt)
+                chan = await self.validatechannel(newopt, message.guild)
+                if chan:
+                    await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
+                    setopt.add(newopt)
+                else:
+                    msg += "I was unable to find channel " + newopt + ". "
             elif newopt in ("default", "noprev", "simple"):
                 await self.setstreamoption(message.guild.id, "Type", record, newopt)
                 setopt.add(newopt)

@@ -35,7 +35,9 @@ def getstream(recordid):
 
 class PicartoRecord(basecontext.StreamRecord):
 
-    values = ['adult', 'gaming', 'multistream', 'name', 'title', 'viewers']
+    __slots__ = []
+
+    values = ['adult', 'gaming', 'name', 'title', 'viewers']
     # Keys that are present in a Picarto stream. We don't currently need most of these.
     # values2 = ['user_id', 'name', 'avatar', 'online', 'viewers', 'viewers_total', 'thumbnails', 'followers',
     #            'subscribers', 'adult', 'category', 'account_type', 'commissions', 'recordings', 'title',
@@ -43,47 +45,28 @@ class PicartoRecord(basecontext.StreamRecord):
     #            'multistream', 'languages', 'following']
     # The first item in multistream is the host.
 
+    streamurl = "https://picarto.tv/{0}"  # URL for going to watch the stream
+
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
-        self.internal['preview'] = recdict['thumbnails']['web']
+        self.preview = recdict['thumbnails']['web']
         if detailed:
-            self.internal['online'] = recdict['online']
-            self.internal['time'] = datetime.datetime.strptime(''.join(recdict['last_live'].rsplit(':', 1)),
-                                                               '%Y-%m-%dT%H:%M:%S%z')
-            self.internal['avatar'] = recdict['avatar']
-            self.internal['viewers_total'] = recdict['viewers_total']
+            if recdict['multistream']:
+                self.multistream = [basecontext.MultiClass(x['adult'], x['name'], x['user_id'])
+                                    for x in recdict['multistream']
+                                    if (x['online'] and x['user_id'] != self.name)]
+            else:
+                self.multistream = []
+            self.online = recdict['online']
+            self.time = datetime.datetime.strptime(''.join(recdict['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
+            self.avatar = recdict['avatar']  # We COULD make this ourself same as below, but easier to just grab it.
+            self.viewers_total = recdict['viewers_total']
         else:
-            self.internal['time'] = datetime.datetime.now(datetime.timezone.utc)
-            self.internal['avatar'] = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault" \
-                                                                                                         ".jpg "
-            self.internal['online'] = True
-
-    async def simpembed(self, snowflake=None, offline=False):
-        """The embed used by the noprev message type. This is general information about the stream, but not everything.
-        Users can get a more detailed version using the detail command, but we want something simple for announcements.
-
-        :type snowflake: int
-        :type offline: bool
-        :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
-        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
-        :return: a discord.Embed representing the current stream.
-        """
-        description = self.title
-        value = "Multistream: No"
-        if self.multistream:
-            value = "Multistream: Yes"
-        if not snowflake:
-            embtitle = self.name + " has come online!"
-        else:
-            embtitle = await self.streammsg(snowflake, offset=offline)
-        noprev = discord.Embed(title=embtitle, url=PicartoContext.streamurl.format(self.name), description=description)
-        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
-                         value="Gaming: " + ("Yes" if self.gaming else "No"),
-                         inline=True)
-        noprev.add_field(name=value, value="Viewers: " + str(self.viewers), inline=True)
-        noprev.set_thumbnail(url=self.avatar)
-        return noprev
+            # Non detailed records omit the time and avatar URLs, but we can make those easily enough.
+            self.time = datetime.datetime.now(datetime.timezone.utc)
+            self.avatar = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault.jpg "
+            self.multistream = recdict['multistream']
+            self.online = True
 
     async def detailembed(self, showprev=True):
         """This generates the embed to send when detailed info about a stream is requested. More information is provided
@@ -98,17 +81,14 @@ class PicartoRecord(basecontext.StreamRecord):
         multstring = ""
         # If the stream is in a multi, we need to assemble the string that says
         # who they are multistreaming with.
-        if self.multistream:
-            # Pare down the list to those who are currently online
-            online = list((x for x in self.otherstreams if x["online"]))
-            # Remove the record we're detailing from the list
-            online = list((x for x in online if x["name"] != self.name))
+        if self.ismulti:
+            online = self.otherstreams
             if online:
-                multstring += " and streaming with " + online[0]["name"]
+                multstring += " and streaming with " + online[0].name
                 if len(online) == 2:
-                    multstring += " and " + online[1]["name"]
+                    multstring += " and " + online[1].name
                 elif len(online) == 3:
-                    multstring += ", " + online[1]["name"] + ", and " + online[2]["name"]
+                    multstring += ", " + online[1].name + ", and " + online[2].name
         # print(multstring," : ", str(record['multistream']))
         myembed = discord.Embed(
             title=self.name + "'s stream is " + ("" if self.online else "not ") + "online" + multstring,
@@ -116,17 +96,15 @@ class PicartoRecord(basecontext.StreamRecord):
         myembed.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
                           value="Gaming: " + ("Yes" if self.gaming else "No"), inline=True)
         if self.online:
-            lastonline = "Streaming for " + await PicartoContext.streamtime(self.time)
+            lastonline = await self.streammsg(None)
             viewers = "Viewers: " + str(self.viewers)
         else:
-            # Doesn't work pre 3.7, removed.
-            # lastonline = datetime.datetime.fromisoformat(record['last_live']).strftime("%m/%d/%Y")
-            # This works with 3.6/3.7
-            lastonline = "Last online: " + self.internal['time'].strftime("%m/%d/%Y")
+            # If this were used on a non-detailed record, it would be the time the record was created.
+            lastonline = "Last online: " + self.time.strftime("%m/%d/%Y")
             viewers = "Total Views: " + str(self.total_views[1])
         myembed.add_field(name=lastonline, value=viewers, inline=True)
         if showprev:
-            myembed.set_image(url=self.preview)
+            myembed.set_image(url=self.preview_url)
         myembed.set_thumbnail(url=self.avatar)
         return myembed
 
