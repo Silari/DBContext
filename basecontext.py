@@ -75,7 +75,7 @@ class StreamRecord:
       Is the record a detailed record?
     gaming: bool
       Is the stream set as a gaming stream?
-    multistream: list | bool
+    multistream: list[MultiClass] | bool
       Stores information about multistream status. This should be interacted with via ismulti or otherstreams, as the
       actual type varies between APIs and what call is used. Should always be a list if detailed.
     name: str
@@ -664,12 +664,17 @@ class APIContext:
 
         :type recordid: str
         :type headers: dict
-        :rtype: StreamRecord
+        :rtype: StreamRecord | bool | int | None
         :param recordid: String with the name of the stream, used to format the URL.
         :param headers: Headers to be passed on to the API call.
-        :return: A dict with the information for the stream, exact content depends on the API.
+        :return: A dict with the information for the stream, exact content depends on the API. If acallapi failed, the
+        error it returned is returned.
         """
-        return self.recordclass(await self.acallapi(self.channelurl.format(recordid), headers), True)
+        record = await self.acallapi(self.channelurl.format(recordid), headers)
+        if record:  # We succeeded in calling the API, so transform the data into a StreamRecord.
+            return self.recordclass(record, True)
+        else:  # The call failed for some reason, so pass the error along.
+            return record
 
     agetstreamoffline = agetstream
 
@@ -680,10 +685,11 @@ class APIContext:
 
         :type url: str
         :type headers: dict
-        :rtype: dict | bool | int
+        :rtype: dict | bool | int | None
         :param url: URL to call
         :param headers: Headers to send with the request
-        :return: The interpreted JSON result of the call, or 0 or False.
+        :return: The interpreted JSON result of the call if the call succeeded. On failure, the return will None if the
+        call timed out, 0 if a 404 error occured, or False for any other error.
         """
         # header is currently only needed by twitch, where it contains the API
         # key. For other callers, it is None.
@@ -695,7 +701,7 @@ class APIContext:
                     buff = await resp.text()
                     # print(buff)
                     if buff:
-                        record = json.loads(buff)  # Interpret the received JSON
+                        record = json.loads(buff)  # Interpret the received data as JSON
                 elif resp.status == 404:  # Not found
                     record = 0  # 0 means no matching record - still false
                 elif resp.status == 401:  # Unauthorized
@@ -740,7 +746,7 @@ class APIContext:
         :rtype: tuple[bool, dict]
         :return: True on success, False if any error occurs.
         """
-        updated = False
+        updated = False  # Default value for success/failed
         newparsed = {}
         buff = await self.acallapi(self.apiurl)
         if buff:  # Any errors would return False (or None) instead of a buffer
@@ -772,7 +778,9 @@ class APIContext:
                         self.parsed[stream] = self.recordclass(newrecs[stream])
                 else:
                     print("Initial update of", self.name, "failed.")
-                    if updated == 0:
+                    if updated is False:
+                        pass  # Generic error, do nothing here.
+                    elif updated == 0:
                         print("Call had a 404 error.")
                     elif updated is None:
                         print("Call timed out.")
@@ -795,10 +803,9 @@ class APIContext:
             [item for sublist in [self.mydata["SavedMSG"][k] for k in self.mydata["SavedMSG"]] for item in sublist])
         # print("savedstreams",savedstreams)
         # Note that if the initial update fails, due to the API being down most
-        # likely, this WILL remove all stream messages. Waiting until the API
-        # updates successfully might be the best option, but that'd require too
-        # much reworking of the update task, and this way they'll get announced when
-        # the API comes back.
+        # likely, this WILL remove all stream messages. Waiting until the API updates successfully might be the best
+        # option, but that'd require too much reworking of the update task, and this way they'll get announced when
+        # the API comes back. Also with the savedata function now implemented it'll skip the first update anyway.
         for stream in savedstreams:
             # Step 2: Check if the stream is offline: not in self.parsed.
             if stream not in self.parsed:  # No longer online
@@ -889,6 +896,8 @@ class APIContext:
             for cur in curstreams:
                 # Get the current record from our dict.
                 record = self.parsed[cur]
+                # TODO Change this to only update if stream is being watched? I could keep a separate timer that updates
+                #  the unwatched streams every X minutes?
                 # Update the record with the new information.
                 record.update(newparsed[cur])
                 if cur in mydata['AnnounceDict']:  # Someone is watching this stream
@@ -1222,16 +1231,8 @@ class APIContext:
                 msg += "\n**Last attempt to update API also failed. API may be down.**"
             await channel.send(msg)
             return
-        if record == 0:  # API call returned a Not Found response
-            msg = "The API found no users by the name. Check the name and spelling for errors and try again."
-            # API being down wouldn't be the cause of this, so for now we're
-            # commenting these out. May reinstate them later.
-            # if not self.lastupdate : #Note if the API update failed
-            #    msg += "\n**Last attempt to update API failed. API may be down.**"
-            await channel.send(msg)
-            return
         # Non-timeout error happened.
-        if not record:
+        if record is False:
             try:
                 msg = "Sorry, I failed to load information about that channel due to an error. Please wait and try " \
                       "again later. "
@@ -1241,6 +1242,13 @@ class APIContext:
             except KeyError:  # Nothing left to have this but keep it for now.
                 pass
             return  # Only announce on that server, then stop.
+        if record == 0:  # API call returned a Not Found response
+            msg = "The API found no users by the name. Check the name and spelling for errors and try again."
+            # API being down wouldn't be the cause of this, so we're commenting these out. May reinstate them later.
+            # if not self.lastupdate :  # Note if the API update failed
+            #    msg += "\n**Last attempt to update API failed. API may be down.**"
+            await channel.send(msg)
+            return
         showprev = True
         if record.adult and (not (await self.getoption(oneserv, 'Adult', recordid) == 'showadult')):
             # We need to not include the preview from the embed.
