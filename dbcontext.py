@@ -513,9 +513,7 @@ async def makenotifyrole(guild):
     userrole = None
     try:
         # The bot should have the ping any role perm, so the role doesn't need to be mentionable
-        # Except that doesn't actually work for bots for some reason so it DOES need it for now.
-        userrole = await guild.create_role(reason="Role created for notification", name=notifyrolename,
-                                           mentionable=True)
+        userrole = await guild.create_role(reason="Role created for notification", name=notifyrolename)
     except discord.Forbidden:  # May not have permission
         pass  # This should leave userrole as none
     return userrole  # Return the role we made, or None if it failed
