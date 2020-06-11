@@ -317,6 +317,7 @@ class APIContext:
             self.name = self.defaultname
         self.parsed = parsed  # This should be replaced in the subclass
         self.lastupdate = lastupdate  # This should be replaced in the subclass
+        self.messagecache: Dict[int, discord.Message] = {}  # Stores Message instances for the announcements.
         self.defaultdata = {"AnnounceDict": {}, "Servers": {}, "COver": {}, "SavedMSG": {}}
         # This is merged into the dict that dbcontext creates for this context on load,
         # which is then stored in the mydata variable above.
@@ -342,11 +343,9 @@ class APIContext:
         #   |-<ServerID>
         #       |"AnnounceChannel": <ChannelID>
         #       |"Listens": set("AngriestPat","WoolieVersus")
-        #       |"Users": set()
         #   |-<ServerID2>
         #       |"AnnounceChannel": <ChannelID2>
         #       |"Listens": set("WoolieVersus")
-        #       |"Users": set()
         #       |"MSG": delete
 
         # Now there's a third, COver, which overriddes certain settings or acts as a
@@ -359,7 +358,7 @@ class APIContext:
         #              |-<optionname>: <optionvalue> #Holds the new value for the given option
         #              |-"Channel": <ChannelID> #Channel to announce in instead of listen channel
 
-        # And now a fourth, SavedMSG. This is a dict that holds the discord I of any
+        # And now a fourth, SavedMSG. This is a dict that holds the discord ID of any
         # announcement messages saved. It's a dict of server ID, that each hold a
         # dict of <recordid>:<messageid>
         # SavedMSG
@@ -369,9 +368,8 @@ class APIContext:
         #  |-<ServerID2>
         #      |<Stream2>:<messageid3>
 
-        # Again, these are not requirements, but recommended to simplify things. It means
-        # being able to copy/paste a lot of code from the existing templates, and time
-        # savers are always nice.
+        # Again, these are not requirements, but recommended to simplify things. It means being able to subclass the
+        # existing classes and use them mostly as is, and time savers are always nice.
 
     def savedata(self):
         """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it
@@ -382,11 +380,14 @@ class APIContext:
         online, and that's fine. It'll evaluate as False and not be saved. Also includes a timestamp when the data was
         saved, checked when it's loaded.
 
-        :return: Returns a tuple with the timestamp and the data to be pickled.
+        :return: Returns the data to be pickled, or False if there is no data to save. For basecontext, the return is a
+        tuple with datetime.datetime.now, the parsed dict, and the messagecache dict.
         """
         data = {k: v for k, v in self.parsed.items() if k in self.mydata['AnnounceDict']}
         # print("savedata",data)
-        if data:
+        if len(data) == 0:
+            data["dbcontext"] = True
+        if data:  # This should always be True now as we added a record if there weren't any.
             curtime = datetime.datetime.now(datetime.timezone.utc)
             return curtime, data
         return False
@@ -396,18 +397,53 @@ class APIContext:
         is less than an hour old, and discards it if it is.
 
         :rtype: bool
-        :type saveddata: tuple[datetime.datetime,dict]
+        :type saveddata: (datetime.datetime,dict,dict)
         :param saveddata: A tuple with the time the data was saved, and a dict of streams that were online to be set as
         the parsed data.
         """
         curtime = datetime.datetime.now(datetime.timezone.utc)
         # If the saveddata is less than an hour old, we use it
         if (curtime - saveddata[0]) < datetime.timedelta(hours=1):
-            self.parsed = saveddata[1]
+            if saveddata[1] == {"dbcontext": True}:
+                # TODO This is empty, so we can ignore it, but we need to redo the updatewrapper to allow that.
+                #  Possibly by setting self.lastupdate to some value that it could check. Maybe init to -4 so it
+                #  immediately trips the 'API Down' status? Or -3 so it gets one more shot.
+                pass
+            self.parsed.update(saveddata[1])
             print(self.name, "loaded data successfully")
         else:
             print(self.name, "discarded old saveddata")
         return False
+
+    async def cacheadd(self, message):
+        """Adds the given Message instance to the cache.
+
+        :type message: discord.Message
+        :param message: The discord.Message instance to add to the cache.
+        """
+        self.messagecache[message.id] = message
+
+    async def cacheget(self, messageid):
+        """Gets the given message id from the cache.
+
+        :type messageid: int
+        :param messageid: An integer representing the discord ID of the message to remove.
+        :rtype: None | discord.Message
+        :return: The discord.Message instance matching the given id, or None if it is not cached.
+        """
+        return self.messagecache.get(messageid, None)
+
+    async def cacheremove(self, *, message=None, messageid=None):
+        """Removes the given Message or id from the cache. messageid is ignored if message is provided.
+
+        :type message: discord.Message
+        :param message: The discord.Message instance to add to the cache.
+        :type messageid: int
+        :param messageid: An integer representing the discord ID of the message to remove.
+        """
+        if message:
+            messageid = message.id
+        self.messagecache.pop(messageid, None)
 
     async def getrecordid(self, record):
         """Gets the name of the record used to uniquely id the stream. Generally, record['name'] or possibly
@@ -723,9 +759,7 @@ class APIContext:
             record = False  # Also a connection problem.
         except asyncio.TimeoutError:  # Exceeded the timeout we set - 60 seconds.
             # Note the different return - timeouts explicitly return None so the
-            # calling code can check if it wants to differentiate it. Currently,
-            # getting a detailed stream record does so to inform the user that
-            # the attempt failed due to the API likely being down.
+            # calling code can check if it wants to differentiate it.
             record = None
         except json.JSONDecodeError:  # Error in reading JSON - bad response from server?
             if buff.startswith("<!DOCTYPE html>"):
@@ -784,6 +818,12 @@ class APIContext:
                         print("Call had a 404 error.")
                     elif updated is None:
                         print("Call timed out.")
+            else:
+                # We make a record called dbcontext when saving if no other records exist, so we need to remove that.
+                temp = self.parsed.pop("dbcontext", None)
+                # It is possible though unlikely this is an ACTUAL stream, so if it's not True add it back in.
+                if temp and temp is not True:
+                    self.parsed["dbcontext"] = temp
         except Exception as error:
             # We catch any errors that happen on the first update and log them
             # It shouldn't happen, but we need to catch it or our wrapper would
@@ -947,74 +987,72 @@ class APIContext:
         if not serverlist:
             serverlist = mydata['AnnounceDict'][recordid]
         for server in serverlist:
-            try:
-                # Try to retreive our saved id
-                msgid = await self.getmsgid(server, recordid)
-                # We don't have a saved message for this, so do nothing.
-                if not msgid:
+            # Try to retreive our saved id
+            msgid = await self.getmsgid(server, recordid)
+            # We don't have a saved message for this, so do nothing.
+            if not msgid:
+                continue
+            msgopt = await self.getoption(server, "MSG", recordid)
+            # Either the MSG option is not set, or is set to edit, which is the default
+            if msgopt == "static":  # We don't do anything with static messages.
+                continue
+            oldmess = await self.cacheget(msgid)
+            if not oldmess:
+                channel = await self.resolvechannel(server, recordid)
+                if channel:  # We may not have a channel if we're no longer in the guild/channel
+                    try:
+                        oldmess = await channel.fetch_message(msgid)
+                    except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+                        pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
+                else:
                     continue
-                msgopt = await self.getoption(server, "MSG", recordid)
-                # Either the MSG option is not set, or is set to edit, which is the default
-                if msgopt == "edit":  # We should edit the message to say they're not online
-                    channel = await self.resolvechannel(server, recordid)
-                    if channel:  # We may not have a channel if we're no longer in the guild/channel
-                        oldmess = await channel.fetch_message(msgid)
-                        newembed = None
-                        # Simple would not have an old embed to use.
-                        if len(oldmess.embeds) > 0:
-                            newembed = oldmess.embeds[0].to_dict()
-                            if 'image' in newembed:  # Is there a stream preview?
-                                # Delete preview as they're not online
-                                del newembed['image']
-                            # If we have the record, this is an online edit so we can update the time.
-                            if record:
-                                # We use oldest id to get the longest possible time this stream ran
-                                # This matches how updatemsg sets the time.
-                                newembed['title'] = await record.streammsg(oldestid, offset=True)
-                            # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
-                            # the current stored time and use that.
-                            else:
-                                newembed['title'] = newembed['title'].replace("running", "lasted")
-                            newembed = discord.Embed.from_dict(newembed)
-                        newmsg = recordid + " is no longer online. Better luck next time!"
-                        await oldmess.edit(content=newmsg, embed=newembed, suppress=False)
-                # We should delete the message
-                elif msgopt == "delete":
-                    channel = await self.resolvechannel(server, recordid)
-                    if channel:
-                        oldmess = await channel.fetch_message(msgid)
-                        await oldmess.delete()
-                # Only other possible value is 'static' in which case we'd do nothing.
-            except KeyError as e:
-                # We should've prevented any of these, so note that it happened.
-                print(self.name, "remove message keyerror:", repr(e))
-                pass
-            except discord.Forbidden as e:
-                # We are not permitted to edit/delete message. This SHOULDN'T ever happen
-                # since you can always delete/edit your own stuff, but JIC.
-                # This MIGHT happen if we lost permissions to talk in that channel
-                # Def gonna wanna log this, it bad.
-                print(self.name, "remove message forbidden:", repr(e))
-                pass
-            except discord.NotFound:
-                # Only the message finding should trigger this, in which case
-                # nothing to do except ignore it. It was probably deleted.
-                pass
-            except discord.HTTPException as e:
-                # HTTP error running the edit/delete command. The above two should've
-                # caught the obvious ones, so lets log this to see what happened.
-                print(self.name, "remove message HTTPException:", repr(e))
-                pass
-            except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
-                pass  # Nothing we can do but ignore it. May setup retry logic later
-            except aiohttp.ClientConnectorError:  # Connection failed
-                pass  # Again, not much to do.
+            if not oldmess:  # We still didn't find the message, may be deleted.
+                continue
+            if msgopt == "edit":  # We should edit the message to say they're not online
+                newembed = None
+                # Simple would not have an old embed to use.
+                if len(oldmess.embeds) > 0:
+                    newembed = oldmess.embeds[0].to_dict()
+                    if 'image' in newembed:  # Is there a stream preview?
+                        # Delete preview as they're not online
+                        del newembed['image']
+                    # If we have the record, this is an online edit so we can update the time.
+                    if record:
+                        # We use oldest id to get the longest possible time this stream ran
+                        # This matches how updatemsg sets the time.
+                        newembed['title'] = await record.streammsg(oldestid, offset=True)
+                    # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
+                    # the current stored time and use that.
+                    else:
+                        newembed['title'] = newembed['title'].replace("running", "lasted")
+                    newembed = discord.Embed.from_dict(newembed)
+                newmsg = recordid + " is no longer online. Better luck next time!"
+                try:
+                    await oldmess.edit(content=newmsg, embed=newembed, suppress=False)
+                except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+                    pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
+                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                    pass  # Nothing we can do but ignore it. May setup retry logic later
+                except aiohttp.ClientConnectorError:  # Connection failed
+                    pass  # Again, not much to do.
+                await self.cacheremove(messageid=msgid)
+            # We should delete the message
+            elif msgopt == "delete":
+                try:
+                    await oldmess.delete()
+                except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+                    pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
+                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                    pass  # Nothing we can do but ignore it. May setup retry logic later
+                except aiohttp.ClientConnectorError:  # Connection failed
+                    pass  # Again, not much to do.
             # Remove the msg from the list, we won't update it anymore.
             # This still happens for static messages, which aren't edited or removed
             try:
                 del mydata['SavedMSG'][server][recordid]
             except KeyError:  # They might not have a message saved, ignore that
                 pass
+            await self.cacheremove(messageid=msgid)
 
     async def updatemsg(self, record, apidown=False):
         """Updates an announcement with the current stream info, including run time.
@@ -1055,44 +1093,33 @@ class APIContext:
                 continue
             # Get the options set for type of message, and if messages are edited
             typeopt = await self.getoption(server, "Type", recordid)
-            msgopt = await self.getoption(server, "MSG", recordid)
             # If Type is simple, there's nothing to edit so skip it.
             if typeopt == "simple":
                 continue
+            msgopt = await self.getoption(server, "MSG", recordid)
             # If MSG option is static, we don't update.
-            elif msgopt == "static":
+            if msgopt == "static":
                 continue
             # Try and grab the old message we saved when posting originally
-            oldmess = None
-            try:
+            oldmess = await self.cacheget(msgid)
+            if not oldmess:
                 channel = await self.resolvechannel(server, recordid)
-                # Guild may no longer have an announce channel set, or we're
-                # not in the guild any more.
-                if channel:
-                    # Try and find out message in the channel.
-                    oldmess = await channel.fetch_message(msgid)
-            except KeyError as e:
-                # This used to happen if there wasn't a saved message, or if
-                # the server removed it's announce channel. Both of those are
-                # now handled by helper functions, so this shouldn't happen.
-                print("updatemsg keyerror!", repr(e))  # Log it
-                continue  # We can just skip to the next server immediately
-            except discord.NotFound:
-                # The message wasn't found, probably deleted. Remove saved id
-                # Note this won't happen if we're not in the guild/channel or
-                # if the announce channel was removed, as we'd fail the if
-                # channel test instead for that case.
-                try:
-                    # print("Removing message",server,recordid,msgid)
-                    # Message is gone, remove it
-                    del mydata['SavedMSG'][server][recordid]
-                except KeyError:
-                    pass
-                continue  # We can just skip to the next server immediately
-            except discord.HTTPException:
-                # General HTTP errors from command. Not much we can do here.
-                # print("updatemsg2",repr(e))
-                continue  # We can just skip to the next server immediately
+                if channel:  # We may not have a channel if we're no longer in the guild/channel
+                    try:
+                        oldmess = await channel.fetch_message(msgid)
+                    except discord.NotFound:
+                        try:
+                            # print("Removing message",server,recordid,msgid)
+                            # Message is gone, remove it
+                            del mydata['SavedMSG'][server][recordid]
+                        except KeyError:
+                            pass
+                    except (discord.HTTPException, discord.Forbidden):
+                        pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
+                else:
+                    continue
+            if not oldmess:  # We still didn't find the message, may be deleted.
+                continue
             if oldmess:
                 msg = oldmess.content  # The text of the message - always present.
                 # If the stream appears to be offline now, edit the announcement slightly.
@@ -1116,10 +1143,19 @@ class APIContext:
                         thisembed = myembed
                 try:
                     await oldmess.edit(content=msg, embed=thisembed, suppress=False)
-                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                except discord.NotFound:  # Neither of these should happen normally.
+                    try:
+                        del mydata['SavedMSG'][server][recordid]  # Remove the saved id, msg is unuseable.
+                    except KeyError:
+                        pass
+                    await self.cacheremove(messageid=msgid)
+                except (discord.Forbidden, aiohttp.ServerDisconnectedError, aiohttp.ClientConnectorError):
                     pass  # Nothing we can do but ignore it and retry it later
-                except aiohttp.ClientConnectorError:  # Connection failed
-                    pass  # Again, not much to do.
+                # This will run even if the edit command caused an exception. We're fine with that as it wouldn't really
+                # affect anything if this isn't synced up to the real message, for now. TODO Fix this
+                oldmess.content = msg
+                oldmess.embeds[0] = thisembed
+                await self.cacheadd(oldmess)
 
     async def announce(self, record, oneserv=None):
         """Announce a stream. Limit announcement to 'oneserv' if given.
@@ -1203,6 +1239,7 @@ class APIContext:
             # print("Sent",sentmsg)
             if sentmsg:
                 await self.setmsgid(server, recordid, sentmsg.id)
+                await self.cacheadd(sentmsg)
 
     async def detailannounce(self, recordid, oneserv=None):
         """Provides a more detailed announcement of a stream for the detail command
@@ -1427,8 +1464,7 @@ class APIContext:
         added = set()
         msg = ""
         notfound = set()
-        # We're going to be setting a stream override, so make sure the
-        # needed dicts are in place.
+        # We're going to be setting a stream override, so make sure the needed dicts are in place.
         if message.channel_mentions:  # Channel mention, so make an override
             if message.channel_mentions[0].guild != message.guild:
                 await message.channel.send("I could not find " + message.channel_mentions[0].name +
@@ -1458,6 +1494,10 @@ class APIContext:
             elif (newstream not in mydata["AnnounceDict"]) and (newstream not in self.parsed):
                 newrecord = await self.agetstreamoffline(newstream)
                 # print(newrecord)
+                if newrecord is None:
+                    msg = "Timeout occured attempting to contact the API. Please try your request again later. "
+                    # If a timeout occured we can't continue the loop - it'll just keep failing.
+                    break
                 if not newrecord:
                     notfound.add(newstream)
                 else:

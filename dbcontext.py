@@ -94,7 +94,7 @@ detailembed for all contexts now uses streammsg instead of it's own message.
 '''
 
 myloop = asyncio.get_event_loop()
-client = discord.Client(loop=myloop, fetch_offline_members=False)
+client = discord.Client(loop=myloop, fetch_offline_members=False, max_messages=None)
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
@@ -1357,7 +1357,7 @@ def savetemps():
         try:
             buff = context.savedata()  # Grab temp data from the context
         except Exception as e:
-            print("savetemps1", repr(e))
+            print("Error getting savedata for", name, repr(e))
             pass
         if buff:  # We got some data to save for the context
             print("Saving data for", name, "context.")
@@ -1370,6 +1370,7 @@ def savetemps():
                     output.write(pbuff)
             except Exception as e:
                 print("Save failed for", name, repr(e))
+                print(buff)
                 pass
 
 
