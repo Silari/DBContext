@@ -1416,7 +1416,7 @@ async def makesession():
     :return: Returns an aiohttp.ClientSession to be used by any context which needs to make HTTP calls.
     """
     # We create a timeout instance to allow a max of 60 seconds per call
-    mytime = aiohttp.ClientTimeout(total=60)
+    mytime = aiohttp.ClientTimeout(total=30)
     # Note that individual requests CAN still override this, but for most APIs it
     # shouldn't take that long.
     myconn = aiohttp.ClientSession(timeout=mytime)
