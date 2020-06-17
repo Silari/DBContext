@@ -381,7 +381,7 @@ class APIContext:
         saved, checked when it's loaded.
 
         :return: Returns the data to be pickled, or False if there is no data to save. For basecontext, the return is a
-        tuple with datetime.datetime.now, the parsed dict, and the messagecache dict.
+        tuple with datetime.datetime.now, and the parsed dict.
         """
         data = {k: v for k, v in self.parsed.items() if k in self.mydata['AnnounceDict']}
         # print("savedata",data)
@@ -1201,16 +1201,17 @@ class APIContext:
                     notifyrole: discord.Role = await self.getoption(server, "Notify")
                     # print("announce notify",repr(notifyrole))
                     notemsg = ""
-                    revert = False
+                    # revert = False
                     # If server is using notifications, mention it
                     if notifyrole:
-                        # If the role isn't mentionable, make it so to avoid a bug
-                        if not notifyrole.mentionable:
-                            try:
-                                await notifyrole.edit(mentionable=True)
-                                revert = True
-                            except discord.Forbidden:
-                                pass
+                        # The bug that caused this seems to have been fixed.
+                        # # If the role isn't mentionable, make it so to avoid a bug
+                        # if not notifyrole.mentionable:
+                        #     try:
+                        #         await notifyrole.edit(mentionable=True)
+                        #         revert = True
+                        #     except discord.Forbidden:
+                        #         pass
                         notemsg = notifyrole.mention + " "
                     # print("msgtype",msgtype)
                     if msgtype == "simple":  # simple type, no embed
@@ -1222,11 +1223,12 @@ class APIContext:
                     else:
                         # Default stream type, full embed with preview
                         sentmsg = await channel.send(notemsg + msg, embed=myembed)
-                    if revert:  # We need to revert the mentionable change - we MUST have a notifyrole if this is true
-                        try:
-                            await notifyrole.edit(mentionable=False)
-                        except discord.Forbidden:
-                            pass
+                    # Again, no longer needed as bug was fixed.
+                    # if revert:  # We need to revert the mentionable change - we MUST have a notifyrole if this is true
+                    #     try:
+                    #         await notifyrole.edit(mentionable=False)
+                    #     except discord.Forbidden:
+                    #         pass
             except KeyError as e:
                 # We should've prevented any of these, so note that it happened.
                 # Note there aren't even any key indices left in the above code

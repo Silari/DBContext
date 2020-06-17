@@ -73,13 +73,13 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = 1.1  # Current bot version
+version = "1.1.1"  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-changelog = '''1.1 Changelog:
+changelog = '''1.1.1 Changelog:
 Added StreamRecord and subclasses to handle differences between the API.
 Piczel output changed slightly to match Picarto
 Messages in the temp offline state are edited to match the fully offline state: 'Stream lasted'
@@ -1292,6 +1292,10 @@ async def aclosebot():
 
 async def savecontexts():
     """Saves the data for all contexts to a file."""
+    # It'd be nice to have this only save if data changed, but considering how little data we have it seems it'd be more
+    # trouble to try and track that than to just let it go.
+    # A simpler method may be to hash the buffer and compare that, then save if different?
+    # Pickle-ing the exact same data can load to different results, so that doesn't work.
     try:
         # Copy the current contexts into a new dictionary
         contdata = copy.deepcopy(contexts)
@@ -1321,7 +1325,6 @@ async def savecontexts():
 async def savetask():
     """Calls savecontext every five minutes. Stops immediately if client is closed so it won't interfere with the save
      on close."""
-    # TODO Possibly change this to only save if something has changed?
     while not client.is_closed():
         try:
             # These were broken up into minute chunks to avoid a hang when closing
@@ -1493,12 +1496,13 @@ def startupwrapper():
     if not calledstop:
         raise Exception("Bot ended without being explicitly stopped!")
     else:
-        # If so, print a message for logging purposes
-        print("Called quit")
         # for each module, save the resume data.
         savetemps()
         if calledstop == 'restart':
             raise Exception("Restart requested.")
+        else:
+            # Log that the quit was requested.
+            print("Called quit")
 
 
 # This section is needed for Python 3.7 to 3.7.3 only.
