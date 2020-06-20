@@ -188,6 +188,39 @@ class LimitedClient:
         # This is a custom function that helps resolve a Member/User instance from the username#0000 or ID. It uses the
         # users property of client which we don't want exposed.
         self.resolveuser = resolveuser
+        # Stores Message instances into a cache. More selectful than the discord.py one, and keeps messages until they
+        # are explicitly removed from it, rather than having a limit.
+        self.messagecache: Dict[int, discord.Message] = {}
+
+    async def cacheadd(self, message):
+        """Adds the given Message instance to the cache.
+
+        :type message: discord.Message
+        :param message: The discord.Message instance to add to the cache.
+        """
+        self.messagecache[message.id] = message
+
+    async def cacheget(self, messageid):
+        """Gets the given message id from the cache.
+
+        :type messageid: int
+        :param messageid: An integer representing the discord ID of the message to remove.
+        :rtype: None | discord.Message
+        :return: The discord.Message instance matching the given id, or None if it is not cached.
+        """
+        return self.messagecache.get(messageid, None)
+
+    async def cacheremove(self, *, message=None, messageid=None):
+        """Removes the given Message or id from the cache. messageid is ignored if message is provided.
+
+        :type message: discord.Message
+        :param message: The discord.Message instance to add to the cache.
+        :type messageid: int
+        :param messageid: An integer representing the discord ID of the message to remove.
+        """
+        if message:
+            messageid = message.id
+        self.messagecache.pop(messageid, None)
 
 
 fakeclient = LimitedClient(client)
