@@ -292,7 +292,11 @@ class APIContext:
 
     conn = None  # Filled later with an aiohttp ClientSession for all our HTTP calls.
 
-    recordclass = StreamRecord
+    recordclass = StreamRecord  # Class to instantiate API data with.
+
+    sleeptime = 60  # How many seconds for the update loop to sleep for between updates
+
+    maxlistens = 100  # The maximum amount of listens per server
 
     @property
     def apiurl(self):
@@ -731,7 +735,7 @@ class APIContext:
             record = False  # Also a connection problem.
         except aiohttp.ServerTimeoutError:
             record = False  # Also a connection problem.
-        except asyncio.TimeoutError:  # Exceeded the timeout we set - 60 seconds.
+        except asyncio.TimeoutError:  # Exceeded the timeout we set for our connection.
             # Note the different return - timeouts explicitly return None so the
             # calling code can check if it wants to differentiate it.
             record = None
@@ -766,8 +770,8 @@ class APIContext:
         return updated, newparsed
 
     async def updatewrapper(self, conn):
-        """Sets a function to be run continuously every 60 seconds until the bot is closed. Handles errors that
-        propagate outside of the called function to ensure the task doesn't stop prematurely.
+        """Sets a function to be run continuously every self.sleeptime seconds until the bot is closed. Handles errors
+        that propagate outside of the called function to ensure the task doesn't stop prematurely.
 
         :type conn: aiohttp.ClientSession
         :param conn: ClientSession instance to be used for any HTTP calls, shared by all contexts.
@@ -836,7 +840,7 @@ class APIContext:
         # while not loop keeps a background task running until client closing
         while not self.client.is_closed():
             try:
-                await asyncio.sleep(60)  # task runs every 60 seconds
+                await asyncio.sleep(self.sleeptime)  # task runs every sleeptime seconds, set above
                 await self.updatetask()  # The function that actually performs anything
             # This NEEDS to be first, as it must take priority
             # This could be Exception, or BaseException if Python 3.8+
@@ -1416,7 +1420,7 @@ class APIContext:
                 msg += "\nstreamoption <name> <option(s)>: overrides one or more space separated options for the " \
                        "given stream. If no options are provided, lists any overrides currently set. "
                 msg += "\nadd <names>: adds new streams to announce, seperated by a space (any trailing commas are " \
-                       "removed). Streams past the server limit of 100 will be ignored. "
+                       "removed). Streams past the server limit of " + str(self.maxlistens) + " will be ignored. "
                 msg += "\announce: immediately announces any online streams that were not previously announced."
                 msg += "\nremove <names>: removes multiple new streams at once, seperated by a space."
                 msg += "\ndetail <name>: Provides details on the given stream, including multi-stream participants, " \
@@ -1462,8 +1466,9 @@ class APIContext:
                 mydata['COver'][message.guild.id] = {}
         for newstream in command[1:]:
             # print(newstream)
-            if len(mydata["Servers"][message.guild.id]["Listens"]) >= 100:
-                msg += "Too many listens - limit is 100 per server. Did not add " + newstream + "or later streams."
+            if len(mydata["Servers"][message.guild.id]["Listens"]) >= self.maxlistens:
+                msg += "Too many listens - limit is " + str(self.maxlistens) + " per server. Did not add " + newstream\
+                       + " or later streams."
                 break
             # If the name ends with a comma, strip it off. This allows
             # to copy/paste the result of the list command into add

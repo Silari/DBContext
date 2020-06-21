@@ -105,6 +105,9 @@ invite = "https://discordapp.com/api/oauth2/authorize?client_id=5533352777044459
 # URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
+# Timeout used for our aiohttp instance
+conntimeout = 30
+
 # Role names for the manage module
 managerolename = "StreamManage"
 notifyrolename = "StreamNotify"
@@ -1451,8 +1454,8 @@ async def makesession():
     :rtype: aiohttp.ClientSession
     :return: Returns an aiohttp.ClientSession to be used by any context which needs to make HTTP calls.
     """
-    # We create a timeout instance to allow a max of 60 seconds per call
-    mytime = aiohttp.ClientTimeout(total=30)
+    # We create a timeout instance to allow a max of conntimeout seconds per call
+    mytime = aiohttp.ClientTimeout(total=conntimeout)
     # Note that individual requests CAN still override this, but for most APIs it
     # shouldn't take that long.
     myconn = aiohttp.ClientSession(timeout=mytime)
