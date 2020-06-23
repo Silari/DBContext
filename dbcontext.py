@@ -48,7 +48,7 @@
 #              del context.mydata['SavedMSG'][guild_id][key]
 #              break
 #   Easier to just have announce <stream> announce a stream regardless if it was
-#   already?
+#   already? NO.
 
 # Import module and setup our client and token.
 from typing import Dict, Union
@@ -73,25 +73,19 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = "1.1.1"  # Current bot version
+version = "1.2"  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-changelog = '''1.1.1 Changelog:
-Added StreamRecord and subclasses to handle differences between the API.
-Piczel output changed slightly to match Picarto
-Messages in the temp offline state are edited to match the fully offline state: 'Stream lasted'
-Fixes to the notify system
- Bot will warn if it isn't able to assign the notify role due to position.
- notifyon command will remake the message if it isn't found.
-Refactored updatemsg to return early if update isn't needed. Corrected bug where it would quit early instead of skipping
- to the next server.
-Lots of fixes for style and general cleanup of code. Documentation added to most functions.
-Added restart command, which saves tempdata same as quit.
-detailembed for all contexts now uses streammsg instead of it's own message.
-'''
+changelog = '''1.2 Changelog:
+Added custom message cache and disabled discord.py's. This saves RAM and ensures the messages we use are cached.
+Added rmmsg and updated setmsgid to handle added/removing SavedMSG and the cache.
+Added savednames async generator to iterate over all unique stream names with a saved message ID. 
+ Used by updatewrapper to find SavedMSGs to verify.
+Added savedids async generator to iterate over all saved message IDs, optionally only those for the given stream name.
+ Used in removemsg and updatemsg to find the oldest ID for a stream.'''
 
 myloop = asyncio.get_event_loop()
 client = discord.Client(loop=myloop, fetch_offline_members=False, max_messages=None)
@@ -220,10 +214,14 @@ class LimitedClient:
         :param message: The discord.Message instance to add to the cache.
         :type messageid: int
         :param messageid: An integer representing the discord ID of the message to remove.
+        :rtype: discord.Message | None
+        :return: The cached Message instance, or None if that id was not cached.
         """
         if message:
             messageid = message.id
-        self.messagecache.pop(messageid, None)
+        elif messageid is None:
+            raise ValueError("cacheremove requires either a Message instance or a message ID!")
+        return self.messagecache.pop(messageid, None)
 
 
 fakeclient = LimitedClient(client)

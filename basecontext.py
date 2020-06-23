@@ -12,7 +12,7 @@
 # for easier management of multiple threads. Most functions used in this should
 # also be coroutines, especially any potentially blocking functions, so that the
 # bot can still be responsive to other requests.
-from typing import Dict
+from typing import Dict, AsyncGenerator
 
 import discord  # Access to potentially needed classes/methods, Embed
 import aiohttp  # Should be used for any HTTP requests, NOT urllib!
@@ -22,7 +22,8 @@ import traceback  # For exception finding.
 import datetime  # For stream duration calculation.
 import time  # Used to add a time stamp to images to avoid caches.
 
-from dbcontext import LimitedClient
+if False:
+    from dbcontext import LimitedClient
 
 
 class Updated:
@@ -274,7 +275,8 @@ class APIContext:
     """
     defaultname = "template"  # This must be a unique name, used to identify this context
 
-    client: LimitedClient = None  # Is filled by discordbot with a handle to the client instance
+    # Is filled by discordbot with a handle to the client instance
+    client = None  # type: LimitedClient
     # Do not use this to perform potentially disruptive actions. It is mostly used
     # for client.send_message and such in the currently available contexts.
 
@@ -381,8 +383,8 @@ class APIContext:
         will be sent to loaddata shortly after the bot starts, but before the background task updatewrapper is started.
         Return MUST evaluate as True but otherwise can be anything that pickle can handle, and will be returned as is.
         We return a partial dict from parsed, limited only to streams that are being watched. For twitch, this will be
-        ALL of parsed, since it only REQUESTS streams that are being watched. Also includes a timestamp when the data was
-        saved, checked when it's loaded.
+        ALL of parsed, since it only REQUESTS streams that are being watched. Also includes a timestamp when the data
+        was saved, checked when it's loaded.
 
         :return: Returns the data to be pickled, or False if there is no data to save. For basecontext, the return is a
         tuple with datetime.datetime.now, and the parsed dict.
@@ -430,6 +432,33 @@ class APIContext:
         """
         raise NotImplementedError("getrecordid must be overridden in subclass!")
 
+    async def savednames(self) -> AsyncGenerator[str, None]:
+        """Yields all unique stream names which have a message id stored.
+        """
+        # This gets the name of any stream that has a saved msg. Used when first started to validate old SavedMSGs
+        # savedstreams = set(
+        #     [item for sublist in [self.mydata['SavedMSG'][k] for k in self.mydata['SavedMSG']] for item in sublist])
+        found = set()
+        for server in self.mydata['SavedMSG']:
+            for stream in self.mydata['SavedMSG'][server]:
+                if stream not in found:
+                    yield stream
+                    found.add(stream)
+
+    async def savedids(self, recordname: str = None) -> AsyncGenerator[int, None]:
+        """Returns a list of all message ids from SavedMSG. May be limited to one recordname
+
+        :type recordname: str
+        :param recordname: Name of record to grab all saved IDs for.
+        """
+        # This gets the guildid and msgid for any guild with a savedmsg for recordname and puts them into a new dict
+        # which gets put into min(allsaved.values())
+        # allsaved = {k: v[recordname] for (k, v) in self.mydata['SavedMSG'].items() if recordname in v}
+        for server in self.mydata['SavedMSG']:
+            for stream in self.mydata['SavedMSG'][server]:
+                if recordname is None or stream == recordname:
+                    yield self.mydata['SavedMSG'][server][stream]
+
     async def getmsgid(self, guildid, recordid):
         """Gets the snowflake for the message we used to announce the stream in the guild.
 
@@ -441,27 +470,49 @@ class APIContext:
         :return: The snowflake for the announcement message.
         """
         try:
+            # We can't just use a .get(recordid,None) here because guildid might not exist and would still KeyError
             return self.mydata['SavedMSG'][guildid][recordid]
         except KeyError:  # Guild has no saved messages, or none for that record
             return None
 
-    async def setmsgid(self, guildid, recordid, messageid):
+    async def setmsgid(self, guildid, recordid, message: discord.Message = None):
         """Sets the snowflake for the message we used to announce the stream in the guild.
 
-        :type messageid: int
         :type guildid: int
         :type recordid: str
+        :type message: discord.Message
         :param guildid: Snowflake for the guild to set the announcement for.
         :param recordid: Name of the stream to set the announcement for.
-        :param messageid: The snowflake for the announcement message.
+        :param message: The Message instance that we are moving from SavedMSG and the cache.
         """
-        # TODO Rework this to take the message, and add it to the cache?
         if guildid not in self.mydata['SavedMSG']:
             self.mydata['SavedMSG'][guildid] = {}
-        self.mydata['SavedMSG'][guildid][recordid] = messageid
+        self.mydata['SavedMSG'][guildid][recordid] = message.id
+        await self.client.cacheadd(message)
 
-    # TODO Add rmmsgid to remove the message from savedmsg and from the cache if there is one saved. Look at remove func
-    #  line 1776 to see how that handles doing both.
+    async def rmmsg(self, guildid, recordid, message: discord.Message = None, messageid: int = None):
+        """Removes the saved message for the stream from SavedMSG and the cache. The messageid parameter is ignored by
+        cacheremove if the message is provided. If neither is provided, it will attempt to grab the messageid from
+        SavedMSG.
+
+        :type guildid: int
+        :type recordid: str
+        :type message: discord.Message
+        :type messageid: int
+        :param guildid: Snowflake for the guild to set the announcement for.
+        :param recordid: Name of the stream to set the announcement for.
+        :param message: The Message instance that we are moving from SavedMSG and the cache.
+        :param messageid: The snowflake for the announcement message.
+        """
+        oldid = None
+        try:
+            oldid = self.mydata['SavedMSG'][guildid].pop(recordid, None)
+        except KeyError:  # Nothing saved for that stream, ignore it.
+            pass
+        if message is None and messageid is None:
+            messageid = oldid
+        if message or messageid:
+            await self.client.cacheremove(message=message, messageid=messageid)
 
     async def resolvechannel(self, guildid, recordid=None, channelid=None):
         """Get the channel associated with this guild and recordid, or get the TextChannel instance for the given
@@ -820,20 +871,16 @@ class APIContext:
         # fully connected to discord. Usually, it is best to leave it in.
         # Now our client is ready and connected, let's check if our saved messages
         # are still online. If not, we need to pass it to removemsg.
-        # TODO Make this a (async?) generator instead? Could skip this line and just put the generator in the for loop
+        # Note that if the initial update fails, e.g. due to the API being down, this WILL remove all stream messages.
+        # Waiting until the API updates successfully might be the best option, but that'd require too much reworking of
+        # the update task, and this way they'll get announced when the API comes back. Also with the savedata function
+        # now implemented it'll usually skip the first update anyway, and thus every stream would still be 'online'.
         # Step 1: Get a list of all stream names with a saved message
-        savedstreams = set(
-            [item for sublist in [self.mydata["SavedMSG"][k] for k in self.mydata["SavedMSG"]] for item in sublist])
-        # print("savedstreams",savedstreams)
-        # Note that if the initial update fails, due to the API being down most
-        # likely, this WILL remove all stream messages. Waiting until the API updates successfully might be the best
-        # option, but that'd require too much reworking of the update task, and this way they'll get announced when
-        # the API comes back. Also with the savedata function now implemented it'll skip the first update anyway.
-        for stream in savedstreams:
+        async for stream in self.savednames():  # Now handled by an async generator
             # Step 2: Check if the stream is offline: not in self.parsed.
             if stream not in self.parsed:  # No longer online
                 # print("savedstreams removing",stream)
-                # Send it to removemsg to edit/delete the message for everyone.
+                # Step 3: Send it to removemsg to edit/delete the message for everyone.
                 await self.removemsg(record=None, recordid=stream)
         # If the stream is still online, the message for it will be updated in
         # 5 minutes, same as if it were just announced.
@@ -943,7 +990,7 @@ class APIContext:
         :type record: StreamRecord | None
         :type serverlist: list[int]
         :type recordid: str
-        :param record: A full stream record as returned by the API. Can be none if recordid is provided.
+        :param record: A full stream record as returned by the API. Can be None if recordid is provided.
         :param serverlist: Snowflake for the server in which to give this announcement.
         :param recordid: String with the name of the stream, used if the full record is unavailable.
         """
@@ -952,21 +999,21 @@ class APIContext:
         # that case.
         mydata = self.mydata  # Ease of use and speed reasons
         # If we were provided with a record id, we don't need to find it.
+        oldestid = None
         if not recordid:
             recordid = record.name
-        allsaved = {k: v[recordid] for (k, v) in mydata['SavedMSG'].items() if recordid in v}
-        if allsaved:  # List MAY be empty if no announcements were made
-            oldestid = min(allsaved.values())  # Find the id with the lowest value
-            # print("removemsg",allsaved,"@@@",oldestid)
-            # We use that lowest value to help calculate how long the stream has
-            # been running for. Ideally we'd always get that info from the API,
-            # but it's not always available (like in picarto's), so we may need
-            # to use the time the message was created instead.
-        else:
-            # If allsaved was empty, we don't have any saved messages to update.
-            # So we can just stop now and save time.
-            # print("updatemsg found no saved!")
-            return
+        else:  # If we don't have a record, we don't need to generate oldestid as it wouldn't be used anyway.
+            try:
+                oldestid = min([x async for x in self.savedids(recordid)])  # Find the id with the lowest value
+                # We use that lowest value to help calculate how long the stream has
+                # been running for. Ideally we'd always get that info from the API,
+                # but it's not always available (like in picarto's), so we may need
+                # to use the time the message was created instead.
+            except ValueError:
+                # min had no saved messages, we don't have any saved messages to update.
+                # So we can just stop now and save time.
+                return
+        # We weren't given a list of servers to use, so grab the list of all servers who watch this stream
         if not serverlist:
             serverlist = mydata['AnnounceDict'][recordid]
         for server in serverlist:
@@ -978,11 +1025,7 @@ class APIContext:
             msgopt = await self.getoption(server, "MSG", recordid)
             # Check what we need to do based on the message type.
             if msgopt == "static":  # We don't do anything with static messages.
-                try:
-                    del mydata['SavedMSG'][server][recordid]
-                except KeyError:  # They might not have a message saved, ignore that
-                    pass
-                await self.client.cacheremove(messageid=msgid)  # Just remove it from the cached messages
+                await self.rmmsg(server, recordid, messageid=msgid)
                 continue
             oldmess = await self.client.cacheget(msgid)
             if not oldmess:
@@ -1035,11 +1078,7 @@ class APIContext:
                 except aiohttp.ClientConnectorError:  # Connection failed
                     pass  # Again, not much to do.
             # Remove the msg from the list, we won't update it anymore.
-            try:
-                del mydata['SavedMSG'][server][recordid]
-            except KeyError:  # They might not have a message saved, ignore that
-                pass
-            await self.client.cacheremove(messageid=msgid)
+            await self.rmmsg(server, recordid, messageid=msgid)
 
     async def updatemsg(self, record, apidown=False):
         """Updates an announcement with the current stream info, including run time.
@@ -1051,26 +1090,22 @@ class APIContext:
         """
         recordid = record.name  # Keep record name cached
         mydata = self.mydata  # Ease of use and speed reasons
-        # Compile dict of all stored announcement messages for this stream.
-        allsaved = {k: v[recordid] for (k, v) in mydata['SavedMSG'].items() if recordid in v}
-        if allsaved:  # List MAY be empty if no announcements were made
-            oldestid = min(allsaved.values())  # Find the id with the lowest value
-            # print("updatemsg",allsaved,"@@@",oldest)
+        try:
+            oldestid = min([x async for x in self.savedids(recordid)])  # Find the id with the lowest value
             # We use that lowest value to help calculate how long the stream has
             # been running for. Ideally we'd always get that info from the API,
-            # but it's not always available (like in picarto), so we may need
+            # but it's not always available (like in picarto's), so we may need
             # to use the time the message was created instead.
-            myembed = await record.makeembed(oldestid)
-            noprev = await record.simpembed(oldestid)
-            if apidown:
-                apistring = "\n**The API appears to be down, unable to update.**"
-                myembed.title += apistring
-                noprev.title += apistring
-        else:
-            # If allsaved was empty, we don't have any saved messages to update.
+        except ValueError:  # No items in list - wrong/non-compareable types would be a TypeError.
+            # min had no saved messages, we don't have any saved messages to update.
             # So we can just stop now and save time.
-            # print("updatemsg found no saved!")
             return
+        myembed = await record.makeembed(oldestid)
+        noprev = await record.simpembed(oldestid)
+        if apidown:
+            apistring = "\n**The API appears to be down, unable to update.**"
+            myembed.title += apistring
+            noprev.title += apistring
         for server in mydata['AnnounceDict'][recordid]:
             # Get the saved msg for this server
             msgid = await self.getmsgid(server, recordid)
@@ -1095,13 +1130,8 @@ class APIContext:
                     try:
                         oldmess = await channel.fetch_message(msgid)
                     except discord.NotFound:
-                        try:
-                            # print("Removing message",server,recordid,msgid)
-                            # Message is gone, remove it
-                            del mydata['SavedMSG'][server][recordid]
-                            # We don't need to remove it from the cache because it wasn't IN the cache.
-                        except KeyError:
-                            pass
+                        # Remove the saved msg - it was deleted already.
+                        await self.rmmsg(server, recordid, messageid=msgid)
                     except (discord.HTTPException, discord.Forbidden):
                         pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
                 else:
@@ -1132,15 +1162,10 @@ class APIContext:
                 try:
                     await oldmess.edit(content=msg, embed=thisembed, suppress=False)
                 except discord.NotFound:  # If the message was deleted but we had it in our cache, this could happen.
-                    try:
-                        del mydata['SavedMSG'][server][recordid]  # Remove the saved id, msg is unuseable.
-                    except KeyError:
-                        pass
-                    await self.client.cacheremove(messageid=msgid)  # Remove it from the cache
+                    # Remove the old message from our records - it's gone.
+                    await self.rmmsg(server, recordid, messageid=msgid)
                 except (discord.Forbidden, aiohttp.ServerDisconnectedError, aiohttp.ClientConnectorError):
-                    pass  # Nothing we can do but ignore it and retry it later
-                # This will run even if the edit command caused an exception. We're fine with that as it wouldn't really
-                # affect anything if this isn't synced up to the real message, for now. TODO Fix this
+                    continue  # Nothing we can do but ignore it and retry it later. We don't update the cached version!
                 oldmess.content = msg
                 oldmess.embeds[0] = thisembed
                 await self.client.cacheadd(oldmess)
@@ -1179,7 +1204,7 @@ class APIContext:
                 # This is an adult stream and channel does not allow those. Skip it.
                 continue
             # print("announce. Not adult, or adult allowed")
-            sentmsg = None
+            sentmsg = None  # Will hold the Message instance if sending succeeds.
             try:
                 channel = await self.resolvechannel(server, recordid)
                 if channel:  # Might not be in server anymore, so no channel
@@ -1228,8 +1253,7 @@ class APIContext:
                 pass
             # print("Sent",sentmsg)
             if sentmsg:
-                await self.setmsgid(server, recordid, sentmsg.id)
-                await self.client.cacheadd(sentmsg)
+                await self.setmsgid(server, recordid, sentmsg)
 
     async def detailannounce(self, recordid, oneserv=None):
         """Provides a more detailed announcement of a stream for the detail command
@@ -1778,13 +1802,8 @@ class APIContext:
                 except KeyError:  # If stream not online, parsed won't have record.
                     pass
             else:
-                # We still need to remove any savedmsg we have for this stream.
-                try:  # Try to pop a msgid if it exists
-                    msgid = mydata['SavedMSG'][message.guild.id].pop(newstream, None)
-                    if msgid:  # If there was one, we need to remove it from the cache
-                        await self.client.cacheremove(messageid=msgid)
-                except KeyError:
-                    pass
+                # We still need to remove any savedmsg and cached Message we have for this stream.
+                await self.rmmsg(message.guild.id, newstream)
             # And remove any overrides for the stream
             try:
                 del mydata['COver'][message.guild.id][command[1]]
