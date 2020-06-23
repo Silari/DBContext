@@ -861,7 +861,7 @@ class APIContext:
             # We catch any errors that happen on the first update and log them
             # It shouldn't happen, but we need to catch it or our wrapper would
             # break.
-            print(self.name, "initial update error", self.name, repr(error))
+            print(self.name, "initial update error", repr(error))
         # Logs our starting info for debugging/check purposes
         print("Start", self.name, len(self.parsed))
         # By the time that's done our client should be setup and ready to go.
@@ -876,12 +876,15 @@ class APIContext:
         # the update task, and this way they'll get announced when the API comes back. Also with the savedata function
         # now implemented it'll usually skip the first update anyway, and thus every stream would still be 'online'.
         # Step 1: Get a list of all stream names with a saved message
-        async for stream in self.savednames():  # Now handled by an async generator
-            # Step 2: Check if the stream is offline: not in self.parsed.
-            if stream not in self.parsed:  # No longer online
-                # print("savedstreams removing",stream)
-                # Step 3: Send it to removemsg to edit/delete the message for everyone.
-                await self.removemsg(record=None, recordid=stream)
+        try:
+            async for stream in self.savednames():  # Now handled by an async generator
+                # Step 2: Check if the stream is offline: not in self.parsed.
+                if stream not in self.parsed:  # No longer online
+                    # print("savedstreams removing",stream)
+                    # Step 3: Send it to removemsg to edit/delete the message for everyone.
+                    await self.removemsg(record=None, recordid=stream)
+        except Exception as error:
+            print(self.name, "Error in old savedmsg checking loop", repr(error))
         # If the stream is still online, the message for it will be updated in
         # 5 minutes, same as if it were just announced.
         # while not loop keeps a background task running until client closing
@@ -1002,7 +1005,7 @@ class APIContext:
         oldestid = None
         if not recordid:
             recordid = record.name
-        else:  # If we don't have a record, we don't need to generate oldestid as it wouldn't be used anyway.
+        if record:  # If we don't have a record, we don't need to generate oldestid as it wouldn't be used anyway.
             try:
                 oldestid = min([x async for x in self.savedids(recordid)])  # Find the id with the lowest value
                 # We use that lowest value to help calculate how long the stream has
