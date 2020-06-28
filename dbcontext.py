@@ -990,6 +990,8 @@ async def debughandler(command, message):
                 module.mydata['SavedMSG'].clear()
             except KeyError:
                 pass
+    elif command[0] == 'listguilds':
+        await message.channel.send(repr(client.guilds))
     elif command[0] == 'rename':
         for guild in client.guilds:
             msg = await renamerole(guild)

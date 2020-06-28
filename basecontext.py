@@ -46,7 +46,6 @@ class Updated:
 
 lastupdate = Updated()  # Class that tracks if update succeeded - empty if not successful
 
-offlinewait = 10  # How many minutes to wait before declaring a stream offline - OLD
 updatetime = 300  # How many seconds to wait before updating stream announcements
 offlinetime = 600  # How many seconds to wait before declaring a stream offline
 
@@ -198,7 +197,7 @@ class StreamRecord:
         # If stream is offline, we adjust the time to account for the waiting
         # period before we marked it offline.
         if offset:
-            timestr = await APIContext.streamtime(dur, offlinewait)
+            timestr = await APIContext.streamtime(dur, offlinetime)
         else:
             # Online streams need no adjustement.
             timestr = await APIContext.streamtime(dur)
@@ -676,7 +675,7 @@ class APIContext:
         :return: a string with the time the stream has ran for, in a long or short format.
         """
         if offset:
-            dur -= datetime.timedelta(minutes=offset)
+            dur -= datetime.timedelta(minutes=offset/60)
         hours, remainder = divmod(dur.total_seconds(), 3600)
         minutes, seconds = divmod(remainder, 60)
         if longtime:
