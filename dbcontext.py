@@ -410,7 +410,7 @@ async def helphandler(command, message):
     msg += "\nPlease use '<module> help' for help with specific modules"
     msg += "\nThe following modules are available for use: " + ", ".join(contexts)
     msg += "\nI listen to commands on any channel from users with the Manage Server permission."
-    msg += "\nAdditionally, I will listen to commands from users with a role named " + str(managerolename)
+    msg += " Additionally, I will listen to commands from users with a role named " + str(managerolename)
     await message.channel.send(msg)
     return
 
