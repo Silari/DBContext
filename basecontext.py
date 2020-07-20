@@ -969,7 +969,7 @@ class APIContext:
                 # Get the current record from our dict.
                 record = self.parsed[cur]
                 # TODO Change this to only update if stream is being watched? I could keep a separate timer that updates
-                #  the unwatched streams every X minutes?
+                #  the unwatched streams every X minutes? Only super useful for Picarto, 0 use for twitch.
                 # Update the record with the new information.
                 record.update(newparsed[cur])
                 if cur in mydata['AnnounceDict']:  # Someone is watching this stream
