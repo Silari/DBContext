@@ -188,8 +188,7 @@ class TwitchContext(basecontext.APIContext):
             yield [x for x in grouplist][count:count + 100]
             count += 100
 
-    # Called to update the API data by basecontext's updatetask. When it's finished
-    # parsed should have the current list of online streams.
+    # Called to update the API data by basecontext's updatetask.
     async def updateparsed(self):
         """Calls the API and updates our parsed variable with the dict of currently online streams.
 
@@ -227,6 +226,9 @@ class TwitchContext(basecontext.APIContext):
             updated = False  # Errors mean bad things happened, so skip this update
         if updated:  # Only replace parsed data if we succeeded
             newparsed = found
+            # Here is where we could compare what's in newparsed to what's in parsed, and anything new gets a call for
+            # the user record. Wouldn't need any changes in our calling code? Except I'd need to rewrite TwitchClass for
+            # that so it always assumes all online records also have the offline fields?
         # Update the tracking variable
         self.lastupdate.record(updated)
         return updated, newparsed

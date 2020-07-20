@@ -48,7 +48,7 @@
 #              del context.mydata['SavedMSG'][guild_id][key]
 #              break
 #   Easier to just have announce <stream> announce a stream regardless if it was
-#   already?
+#   already? NO.
 
 # Import module and setup our client and token.
 from typing import Dict, Union
@@ -73,28 +73,22 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = 1.1  # Current bot version
+version = "1.2"  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-changelog = '''1.1 Changelog:
-Added StreamRecord and subclasses to handle differences between the API.
-Piczel output changed slightly to match Picarto
-Messages in the temp offline state are edited to match the fully offline state: 'Stream lasted'
-Fixes to the notify system
- Bot will warn if it isn't able to assign the notify role due to position.
- notifyon command will remake the message if it isn't found.
-Refactored updatemsg to return early if update isn't needed. Corrected bug where it would quit early instead of skipping
- to the next server.
-Lots of fixes for style and general cleanup of code. Documentation added to most functions.
-Added restart command, which saves tempdata same as quit.
-detailembed for all contexts now uses streammsg instead of it's own message.
-'''
+changelog = '''1.2 Changelog:
+Added custom message cache and disabled discord.py's. This saves RAM and ensures the messages we use are cached.
+Added rmmsg and updated setmsgid to handle added/removing SavedMSG and the cache.
+Added savednames async generator to iterate over all unique stream names with a saved message ID. 
+ Used by updatewrapper to find SavedMSGs to verify.
+Added savedids async generator to iterate over all saved message IDs, optionally only those for the given stream name.
+ Used in removemsg and updatemsg to find the oldest ID for a stream.'''
 
 myloop = asyncio.get_event_loop()
-client = discord.Client(loop=myloop, fetch_offline_members=False)
+client = discord.Client(loop=myloop, fetch_offline_members=False, max_messages=None)
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
@@ -104,6 +98,9 @@ invite = "https://discordapp.com/api/oauth2/authorize?client_id=5533352777044459
 # oldinvite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
 # URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
+
+# Timeout used for our aiohttp instance
+conntimeout = 30
 
 # Role names for the manage module
 managerolename = "StreamManage"
@@ -188,6 +185,43 @@ class LimitedClient:
         # This is a custom function that helps resolve a Member/User instance from the username#0000 or ID. It uses the
         # users property of client which we don't want exposed.
         self.resolveuser = resolveuser
+        # Stores Message instances into a cache. More selectful than the discord.py one, and keeps messages until they
+        # are explicitly removed from it, rather than having a limit.
+        self.messagecache: Dict[int, discord.Message] = {}
+
+    async def cacheadd(self, message):
+        """Adds the given Message instance to the cache.
+
+        :type message: discord.Message
+        :param message: The discord.Message instance to add to the cache.
+        """
+        self.messagecache[message.id] = message
+
+    async def cacheget(self, messageid):
+        """Gets the given message id from the cache.
+
+        :type messageid: int
+        :param messageid: An integer representing the discord ID of the message to remove.
+        :rtype: None | discord.Message
+        :return: The discord.Message instance matching the given id, or None if it is not cached.
+        """
+        return self.messagecache.get(messageid, None)
+
+    async def cacheremove(self, *, message=None, messageid=None):
+        """Removes the given Message or id from the cache. messageid is ignored if message is provided.
+
+        :type message: discord.Message
+        :param message: The discord.Message instance to add to the cache.
+        :type messageid: int
+        :param messageid: An integer representing the discord ID of the message to remove.
+        :rtype: discord.Message | None
+        :return: The cached Message instance, or None if that id was not cached.
+        """
+        if message:
+            messageid = message.id
+        elif messageid is None:
+            raise ValueError("cacheremove requires either a Message instance or a message ID!")
+        return self.messagecache.pop(messageid, None)
 
 
 fakeclient = LimitedClient(client)
@@ -956,6 +990,8 @@ async def debughandler(command, message):
                 module.mydata['SavedMSG'].clear()
             except KeyError:
                 pass
+    elif command[0] == 'listguilds':
+        await message.channel.send(repr(client.guilds))
     elif command[0] == 'rename':
         for guild in client.guilds:
             msg = await renamerole(guild)
@@ -1292,6 +1328,10 @@ async def aclosebot():
 
 async def savecontexts():
     """Saves the data for all contexts to a file."""
+    # It'd be nice to have this only save if data changed, but considering how little data we have it seems it'd be more
+    # trouble to try and track that than to just let it go.
+    # A simpler method may be to hash the buffer and compare that, then save if different?
+    # Pickle-ing the exact same data can load to different results, so that doesn't work.
     try:
         # Copy the current contexts into a new dictionary
         contdata = copy.deepcopy(contexts)
@@ -1321,7 +1361,6 @@ async def savecontexts():
 async def savetask():
     """Calls savecontext every five minutes. Stops immediately if client is closed so it won't interfere with the save
      on close."""
-    # TODO Possibly change this to only save if something has changed?
     while not client.is_closed():
         try:
             # These were broken up into minute chunks to avoid a hang when closing
@@ -1357,7 +1396,7 @@ def savetemps():
         try:
             buff = context.savedata()  # Grab temp data from the context
         except Exception as e:
-            print("savetemps1", repr(e))
+            print("Error getting savedata for", name, repr(e))
             pass
         if buff:  # We got some data to save for the context
             print("Saving data for", name, "context.")
@@ -1370,6 +1409,7 @@ def savetemps():
                     output.write(pbuff)
             except Exception as e:
                 print("Save failed for", name, repr(e))
+                print(buff)
                 pass
 
 
@@ -1414,8 +1454,8 @@ async def makesession():
     :rtype: aiohttp.ClientSession
     :return: Returns an aiohttp.ClientSession to be used by any context which needs to make HTTP calls.
     """
-    # We create a timeout instance to allow a max of 60 seconds per call
-    mytime = aiohttp.ClientTimeout(total=30)
+    # We create a timeout instance to allow a max of conntimeout seconds per call
+    mytime = aiohttp.ClientTimeout(total=conntimeout)
     # Note that individual requests CAN still override this, but for most APIs it
     # shouldn't take that long.
     myconn = aiohttp.ClientSession(timeout=mytime)
@@ -1492,12 +1532,13 @@ def startupwrapper():
     if not calledstop:
         raise Exception("Bot ended without being explicitly stopped!")
     else:
-        # If so, print a message for logging purposes
-        print("Called quit")
         # for each module, save the resume data.
         savetemps()
         if calledstop == 'restart':
             raise Exception("Restart requested.")
+        else:
+            # Log that the quit was requested.
+            print("Called quit")
 
 
 # This section is needed for Python 3.7 to 3.7.3 only.
