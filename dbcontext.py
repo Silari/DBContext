@@ -49,6 +49,8 @@
 #              break
 #   Easier to just have announce <stream> announce a stream regardless if it was
 #   already? NO.
+# TODO Revisit this. We would just need to see if the message id is in our cache now, which is a lot quicker.
+#   Also we could possibly watch for edit events and edit our cached version appropriately.
 
 # Import module and setup our client and token.
 from typing import Dict, Union
