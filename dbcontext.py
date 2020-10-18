@@ -1161,10 +1161,11 @@ async def on_raw_reaction_remove(rawreact):
         guild = client.get_guild(rawreact.guild_id)
         rawreact.member = guild.get_member(rawreact.user_id)
         if not rawreact.member:  # Something bad happened
-            # TODO Fix this - we don't have members cached in 1.5. Can we fake a Member with just the ID and calling
-            #  discord.Member.remove_roles(discord.Object(snowflake),notifyrole,reason="Removing user from notify list")
+            # Due to the changes caused by Intents we don't have Members cached and remove doesn't include it, unlike
+            # add. managenotify works around this in a hacky way, but we COULD remove this entirely and just rely on
+            # adding the mute reaction instead.
             # print("RawReactRemove was unable to find the user Member")
-            return
+            pass  # return
         await managenotify(rawreact, guild)
     return
 
@@ -1194,7 +1195,14 @@ async def managenotify(rawreact, guild):
     if rawreact.event_type == "REACTION_ADD":  # Add the role
         await rawreact.member.add_roles(notifyrole, reason="Adding user to notify list")
     elif rawreact.event_type == "REACTION_REMOVE":  # Remove the role
-        await rawreact.member.remove_roles(notifyrole, reason="Removing user from notify list")
+        # If we have the Member instance, we're great, use it. We'd need the Members intent to have it though.
+        if rawreact.member:
+            await rawreact.member.remove_roles(notifyrole, reason="Removing user from notify list")
+        else:
+            # Since we don't have the Member instance call into discord.py's http client to send the request to remove
+            # the role. Kinda hacky since you're not supposed to be doing that and discord.py changes could break this.
+            req = client.http.remove_role
+            await req(guild.id, rawreact.user_id, notifyrole.id, reason="Removing user from notify list")
     return
 
 
