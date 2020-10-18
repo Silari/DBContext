@@ -385,24 +385,26 @@ class APIContext:
         ALL of parsed, since it only REQUESTS streams that are being watched. Also includes a timestamp when the data
         was saved, checked when it's loaded.
 
+        :rtype: (datetime.datetime, dict)
         :return: Returns the data to be pickled, or False if there is no data to save. For basecontext, the return is a
         tuple with datetime.datetime.now, and the parsed dict.
         """
+        # Go over all the online streams for the module and discard them if no stream is watching them.
         data = {k: v for k, v in self.parsed.items() if k in self.mydata['AnnounceDict']}
         # print("savedata",data)
         if len(data) == 0:
+            # If no watched streams are online, we insert a fake record so don't have an empty return.
             data["dbcontext"] = True
         if data:  # This should always be True now as we added a record if there weren't any.
             curtime = datetime.datetime.now(datetime.timezone.utc)
             return curtime, data
-        return False
 
     def loaddata(self, saveddata):
         """Loads data previously saved by savedata and reintegrates it into self.parsed. Includes a check that the data
         is less than an hour old, and discards it if it is.
 
         :rtype: bool
-        :type saveddata: (datetime.datetime,dict,dict)
+        :type saveddata: (datetime.datetime,dict)
         :param saveddata: A tuple with the time the data was saved, and a dict of streams that were online to be set as
         the parsed data.
         """
@@ -439,7 +441,8 @@ class APIContext:
         #     [item for sublist in [self.mydata['SavedMSG'][k] for k in self.mydata['SavedMSG']] for item in sublist])
         found = set()
         for server in self.mydata['SavedMSG']:
-            for stream in self.mydata['SavedMSG'][server]:
+            # We make a list from the dict keys - this prevents an error if the list is modified (which we often do)
+            for stream in list(self.mydata['SavedMSG'][server]):
                 if stream not in found:
                     yield stream
                     found.add(stream)
@@ -790,7 +793,7 @@ class APIContext:
             # calling code can check if it wants to differentiate it.
             record = None
         except json.JSONDecodeError:  # Error in reading JSON - bad response from server?
-            if buff.startswith("<!DOCTYPE html>"):
+            if "<!DOCTYPE html>" in buff:
                 # We got an HTML document instead of a JSON response. piczel does this
                 # during maintenence, and it's not valid for anyone else either so might
                 # as well catch it here, so we can supress this error.
@@ -875,7 +878,7 @@ class APIContext:
         # the update task, and this way they'll get announced when the API comes back. Also with the savedata function
         # now implemented it'll usually skip the first update anyway, and thus every stream would still be 'online'.
         # Step 1: Get a list of all stream names with a saved message
-        try:
+        try:  # TODO Fix this erroring due to manipulating the list midloop. Copy the list? - Should be done
             async for stream in self.savednames():  # Now handled by an async generator
                 # Step 2: Check if the stream is offline: not in self.parsed.
                 if stream not in self.parsed:  # No longer online
@@ -1045,20 +1048,27 @@ class APIContext:
                 newembed = None
                 # Simple would not have an old embed to use.
                 if len(oldmess.embeds) > 0:
-                    newembed = oldmess.embeds[0].to_dict()
-                    if 'image' in newembed:  # Is there a stream preview?
-                        # Delete preview as they're not online
-                        del newembed['image']
+                    # TODO We can now directly remove images from an embed with Embed.Empty. Don't need to convert to
+                    #  dict and remove it that way. Done?
+                    # Old method using dict conversion: don't need that anymore.
+                    # We only ever make one embed in a message, so use the first one.
+                    # newembed = oldmess.embeds[0].to_dict()
+                    # if 'image' in newembed:  # Is there a stream preview?
+                    #     # Delete preview as they're not online
+                    #     del newembed['image']
+                    oldmess.embeds[0].set_image(discord.Embed.Empty)  # Clears the image if present
                     # If we have the record, this is an online edit so we can update the time.
                     if record:
                         # We use oldest id to get the longest possible time this stream ran
                         # This matches how updatemsg sets the time.
-                        newembed['title'] = await record.streammsg(oldestid, offset=True)
+                        # newembed['title'] = await record.streammsg(oldestid, offset=True)
+                        oldmess.embeds[0].title = await record.streammsg(oldestid, offset=True)
                     # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
                     # the current stored time and use that.
                     else:
-                        newembed['title'] = newembed['title'].replace("running", "lasted")
-                    newembed = discord.Embed.from_dict(newembed)
+                        # newembed['title'] = newembed['title'].replace("running", "lasted")
+                        oldmess.embeds[0].title = oldmess.embeds[0].title.replace("running", "lasted")
+                    newembed = oldmess.embeds[0]  # discord.Embed.from_dict(newembed)
                 newmsg = recordid + " is no longer online. Better luck next time!"
                 try:
                     await oldmess.edit(content=newmsg, embed=newembed, suppress=False)

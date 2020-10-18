@@ -1,5 +1,5 @@
 # discord bot with module based functionality.
-# Now based on discord.py version 1.3.3
+# Now based on discord.py version 1.5.0
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
@@ -90,7 +90,7 @@ Added savedids async generator to iterate over all saved message IDs, optionally
  Used in removemsg and updatemsg to find the oldest ID for a stream.'''
 
 myloop = asyncio.get_event_loop()
-client = discord.Client(loop=myloop, fetch_offline_members=False, max_messages=None)
+client = discord.Client(loop=myloop, chunk_guilds_at_startup=False, max_messages=None)
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
@@ -656,10 +656,10 @@ async def managehandler(command, message):
         # emoji for the reaction to add/remove notification role.
         #        if not myperms.external_emojis :
         #            msg += "\nMissing 'External Emojis' perm. This permission is needed for nothing right now."
-        # Check for send message permission. This MUST BE DONE LAST due to the PM
-        # if we can't send messages to the channel.
-        # If a channel was mentioned check send permissions there, unless it was
-        # the same channel the message was sent in.
+        # Check for send message permission. This MUST BE DONE LAST due to the PM if we can't send messages to the
+        # channel.
+        # If a channel was mentioned check send permissions there, unless it was the same channel the message was sent
+        # in.
         if (len(message.channel_mentions) > 0 and
                 message.channel_mentions[0] != message.channel):
             if not message.channel_mentions[0].permissions_for(
@@ -1079,10 +1079,10 @@ async def on_member_update(before, after):
      :param before: discord.Member with the state before the change that prompted the event.
      :param after: discord.Member with the state after the change that prompted the event.
      """
-    if before.guild.id != 253682347420024832:
-        return
     # print(repr(before.roles))
     # print(repr(after.roles))
+    if before.guild.id != 253682347420024832:
+        return
     # If roles are the same, do nothing
     if before.roles == after.roles:
         return
@@ -1161,6 +1161,8 @@ async def on_raw_reaction_remove(rawreact):
         guild = client.get_guild(rawreact.guild_id)
         rawreact.member = guild.get_member(rawreact.user_id)
         if not rawreact.member:  # Something bad happened
+            # TODO Fix this - we don't have members cached in 1.5. Can we fake a Member with just the ID and calling
+            #  discord.Member.remove_roles(discord.Object(snowflake),notifyrole,reason="Removing user from notify list")
             # print("RawReactRemove was unable to find the user Member")
             return
         await managenotify(rawreact, guild)
