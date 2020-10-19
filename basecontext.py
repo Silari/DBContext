@@ -411,11 +411,11 @@ class APIContext:
         curtime = datetime.datetime.now(datetime.timezone.utc)
         # If the saveddata is less than an hour old, we use it
         if (curtime - saveddata[0]) < datetime.timedelta(hours=1):
-            if saveddata[1] == {"dbcontext": True}:
-                # TODO This is empty, so we can ignore it, but we need to redo the updatewrapper to allow that.
-                #  Possibly by setting self.lastupdate to some value that it could check. Maybe init to -4 so it
-                #  immediately trips the 'API Down' status? Or -3 so it gets one more shot.
-                pass
+            # if saveddata[1] == {"dbcontext": True}:
+            # This is empty, so we can ignore it, but we need to redo the updatewrapper to allow that.
+            #  Possibly by setting self.lastupdate to some value that it could check. Maybe init to -4 so it
+            #  immediately trips the 'API Down' status? Or -3 so it gets one more shot.
+            #    pass
             self.parsed.update(saveddata[1])
             print(self.name, "loaded data successfully")
         else:
@@ -678,7 +678,7 @@ class APIContext:
         :return: a string with the time the stream has ran for, in a long or short format.
         """
         if offset:
-            dur -= datetime.timedelta(minutes=offset/60)
+            dur -= datetime.timedelta(minutes=offset / 60)
         hours, remainder = divmod(dur.total_seconds(), 3600)
         minutes, seconds = divmod(remainder, 60)
         if longtime:
@@ -878,11 +878,12 @@ class APIContext:
         # the update task, and this way they'll get announced when the API comes back. Also with the savedata function
         # now implemented it'll usually skip the first update anyway, and thus every stream would still be 'online'.
         # Step 1: Get a list of all stream names with a saved message
-        try:  # TODO Fix this erroring due to manipulating the list midloop. Copy the list? - Should be done
+        try:
             async for stream in self.savednames():  # Now handled by an async generator
+                # print("Iterating SavedMSG", stream)
                 # Step 2: Check if the stream is offline: not in self.parsed.
                 if stream not in self.parsed:  # No longer online
-                    # print("savedstreams removing",stream)
+                    # print("savedstreams removing", stream)
                     # Step 3: Send it to removemsg to edit/delete the message for everyone.
                     await self.removemsg(record=None, recordid=stream)
         except Exception as error:
@@ -920,7 +921,7 @@ class APIContext:
                 # Updating from the API failed for some reason, likely it's down
                 # Did it fail five times? If so, we should update messages.
                 if self.lastupdate.failed == 5:
-                    print(self.name, "API is down!")
+                    print(self.name, "API is down!", datetime.datetime.now().strftime("%m-%d %H:%M"))
                     for stream in self.parsed:
                         if stream in mydata['AnnounceDict']:
                             # Update messages with info that the API is down
@@ -1041,8 +1042,10 @@ class APIContext:
                     except (discord.NotFound, discord.HTTPException, discord.Forbidden):
                         pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
                 else:
+                    await self.rmmsg(server, recordid, messageid=msgid)
                     continue
             if not oldmess:  # We still didn't find the message, may be deleted.
+                await self.rmmsg(server, recordid, messageid=msgid)
                 continue
             if msgopt == "edit":  # We should edit the message to say they're not online
                 newembed = None
@@ -1056,7 +1059,7 @@ class APIContext:
                     # if 'image' in newembed:  # Is there a stream preview?
                     #     # Delete preview as they're not online
                     #     del newembed['image']
-                    oldmess.embeds[0].set_image(discord.Embed.Empty)  # Clears the image if present
+                    oldmess.embeds[0].set_image(url=discord.Embed.Empty)  # Clears the image if present
                     # If we have the record, this is an online edit so we can update the time.
                     if record:
                         # We use oldest id to get the longest possible time this stream ran
@@ -1503,7 +1506,7 @@ class APIContext:
         for newstream in command[1:]:
             # print(newstream)
             if len(mydata["Servers"][message.guild.id]["Listens"]) >= self.maxlistens:
-                msg += "Too many listens - limit is " + str(self.maxlistens) + " per server. Did not add " + newstream\
+                msg += "Too many listens - limit is " + str(self.maxlistens) + " per server. Did not add " + newstream \
                        + " or later streams."
                 break
             # If the name ends with a comma, strip it off. This allows
