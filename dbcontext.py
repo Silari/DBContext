@@ -982,7 +982,7 @@ async def debughandler(command, message):
     elif command[0] == 'editmessage':
         msg = await message.channel.fetch_message(command[1])
         await msg.edit(content=" ".join(command[2:]), suppress=False)
-    elif command[0] == 'purge' and len(command[0]) > 1:
+    elif command[0] == 'purge' and len(command) > 1:
         # Attempt to delete messages after the given message id
         if message.guild.id == 318253682485624832:  # ONLY in my server
             await message.channel.purge(after=discord.Object(int(command[1])))

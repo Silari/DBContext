@@ -22,7 +22,7 @@ import traceback  # For exception finding.
 import datetime  # For stream duration calculation.
 import time  # Used to add a time stamp to images to avoid caches.
 
-if False:
+if False:  # We don't actually use this, but it makes it available for typing
     from dbcontext import LimitedClient
 
 
@@ -962,8 +962,10 @@ class APIContext:
                     del self.parsed[gone]
             for new in newstreams:
                 # This is a new stream, see if someone is watching for it
+                # First, convert it to a StreamRecord and save it to parsed
                 record = self.recordclass(newparsed[new])
                 self.parsed[new] = record
+                # Is someone watching for this stream?
                 if new in mydata['AnnounceDict']:
                     # print("I should announce",record)
                     await self.announce(record)
@@ -1008,6 +1010,7 @@ class APIContext:
         oldestid = None
         if not recordid:
             recordid = record.name
+        # print("removemsg removing", recordid)
         if record:  # If we don't have a record, we don't need to generate oldestid as it wouldn't be used anyway.
             try:
                 oldestid = min([x async for x in self.savedids(recordid)])  # Find the id with the lowest value
@@ -1051,8 +1054,6 @@ class APIContext:
                 newembed = None
                 # Simple would not have an old embed to use.
                 if len(oldmess.embeds) > 0:
-                    # TODO We can now directly remove images from an embed with Embed.Empty. Don't need to convert to
-                    #  dict and remove it that way. Done?
                     # Old method using dict conversion: don't need that anymore.
                     # We only ever make one embed in a message, so use the first one.
                     # newembed = oldmess.embeds[0].to_dict()

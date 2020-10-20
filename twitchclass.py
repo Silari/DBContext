@@ -61,19 +61,23 @@ class TwitchRecord(basecontext.StreamRecord):
 
     streamurl = "https://twitch.tv/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(rec)) generally
 
+    # We have most of the info here now - only thing really missing is Followers, which could be gotten but nah.
     def __init__(self, recdict, detailed=True):  # No detailed version of a record here.
         super().__init__(recdict, detailed)
         self.detailed = True  # Twitch is ALWAYS detailed.
         self.adult = False  # Twitch doesn't allow adult streams
         self.gaming = True  # Twitch API doesn't support that, but is basically always gaming. Not really used.
         self.multistream = []  # Twitch doesn't have multistreams
-        if 'view_count' in recdict:  # Is a user record rather than a stream record.
+        self.online = False  # False until we can show it isn't later
+        self.avatar = None  # Overridden if we have a user record.
+        self.viewers_total = None  # Overridden if we have a user record.
+        if 'view_count' in recdict:  # User record items
+            # These should ALWAYS be here now, as stream records get user records added.
             self.avatar = recdict['profile_image_url']
             self.name = recdict['display_name']
-            self.online = False
             self.viewers_total = recdict['view_count']
             self.title = recdict['description']
-        else:
+        if 'user_name' in recdict:  # Stream record items, should also have user record since we added them
             self.name = recdict['user_name']
             self.online = True
             self.preview = recdict['thumbnail_url'].replace("{width}", "848").replace("{height}", "480")
@@ -84,6 +88,7 @@ class TwitchRecord(basecontext.StreamRecord):
             self.game_id = recdict['game_id']  # Specific to Twitch.
 
     def update(self, newdict):
+        # This is only going to be Stream record items.
         # self.internal.update({k: newdict[k] for k in self.upvalues})
         self.viewers = newdict['viewer_count']
         self.game_id = newdict['game_id']
@@ -112,6 +117,7 @@ class TwitchRecord(basecontext.StreamRecord):
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
+        # Generally this should only be used on an online stream. Offline streams are always a detailembed.
         description = self.title
         if not snowflake:
             embtitle = self.name + " has come online!"
@@ -120,6 +126,10 @@ class TwitchRecord(basecontext.StreamRecord):
         noprev = discord.Embed(title=embtitle, url="https://twitch.tv/" + self.name, description=description)
         noprev.add_field(name="Game: " + await self.getgame(self.game_id),
                          value="Viewers: " + str(self.viewers), inline=True)
+        if self.viewers_total:
+            noprev.add_field(name="Total Views:", value=self.total_views[1])
+        if self.avatar:
+            noprev.set_thumbnail(url=self.avatar)
         return noprev
 
     async def detailembed(self, showprev=True):
@@ -195,10 +205,6 @@ class TwitchContext(basecontext.APIContext):
         :rtype: bool
         :return: True on success, False if any error occurs.
         """
-        # TODO Should be done. May need to rewrite the updater to grab the user record for any new streams.
-        #  Up to 100 can be in one call, same as streams, and with the update system I won't need to recall it again
-        #  for anything. That'd give ALL the info for twitch streams. If I do that I can update simpembed with a bit
-        #  more information.
         # Twitch is different since you can't get all online streams - there's far
         # too many. Instead we only grab watched streams in groups.
         found = {}  # Used to hold the records from the API calls.
@@ -229,9 +235,34 @@ class TwitchContext(basecontext.APIContext):
             # Here is where we could compare what's in newparsed to what's in parsed, and anything new gets a call for
             # the user record. Wouldn't need any changes in our calling code? Except I'd need to rewrite TwitchClass for
             # that so it always assumes all online records also have the offline fields?
+            # Find any items in our list that isn't already in parsed so we can grab additional details.
+            newitems = [item for item in newparsed.keys() if item not in self.parsed]  # New streams
+            if newitems:  # If we have at least one new item
+                await self.agetdetails(newitems, newparsed)
         # Update the tracking variable
         self.lastupdate.record(updated)
         return updated, newparsed
+
+    async def agetdetails(self, newitems, newparsed):
+        """Grabs the user record for the given streams in newitems, and updates the records in newparsed with the data
+        from those streams.
+
+        :rtype: None
+        :type newitems: list
+        :type newparsed: dict
+        """
+        # print("agetdetails", newitems)
+        # print("agetdetails2", newparsed)
+        found = {}
+        for checkgroup in self.splitgroup(newitems):
+            loaded = await self.acallapi('https://api.twitch.tv/helix/users?login=' + "&login=".join(checkgroup))
+            found.update({item['display_name']: item for item in loaded['data']})
+        # print("agetdetails", found)
+        # Item should be the name of the stream, which is what it should be the record name in newparsed
+        for item in found.keys():
+            # Update the normal stream record with the additional details we found.
+            newparsed[item].update(found[item])
+        # print("agetdetails", newparsed)
 
     async def makeheader(self):
         """Makes the needed headers for twitch API calls, which includes dealing
