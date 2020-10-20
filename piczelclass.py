@@ -209,6 +209,8 @@ class PiczelContext(basecontext.APIContext):
             record = False
         return PiczelRecord(record, True)
 
+    agetstreamoffline = agetstream
+
     async def getrecordid(self, record):
         """Gets the name of the record used to uniquely id the stream. Generally, record['name'] or possibly
         record['id']. Used to store info about the stream, such as who is watching and track announcement messages.
