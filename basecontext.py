@@ -274,12 +274,11 @@ class APIContext:
     """
     defaultname = "template"  # This must be a unique name, used to identify this context
 
-    # Is filled by discordbot with a handle to the client instance
+    # Is filled by discordbot with a LimitedClient instance, which allows limited access to the discord.Client instance
     client = None  # type: LimitedClient
-    # Do not use this to perform potentially disruptive actions. It is mostly used
-    # for client.send_message and such in the currently available contexts.
 
-    mydata = None  # Is filled by discordbot with a handle to the contexts stored data
+    # Is filled by discordbot with a handle to the contexts stored data
+    mydata = None  # type: Dict[str,dict]
     # This is a dict that is saved and reloaded by dbcontext. Any item saved in this
     # should be safe for pickling/unpickling via the pickle module.
     # Any data that does not need to be persistent across restarts does NOT need to
@@ -431,6 +430,7 @@ class APIContext:
         :param record: A full stream record as returned by the API.
         :return: A string with the record's unique name.
         """
+        # Note this is used before we've converted record data into a StreamRecord instance, which uses 'name'.
         raise NotImplementedError("getrecordid must be overridden in subclass!")
 
     async def savednames(self) -> AsyncGenerator[str, None]:
@@ -1173,7 +1173,6 @@ class APIContext:
                         thisembed = noprev
                     else:
                         # Otherwise show the preview
-                        # print("updatemsg adding embed")
                         thisembed = myembed
                 try:
                     await oldmess.edit(content=msg, embed=thisembed, suppress=False)
@@ -1181,9 +1180,11 @@ class APIContext:
                     # Remove the old message from our records - it's gone.
                     await self.rmmsg(server, recordid, messageid=msgid)
                 except (discord.Forbidden, aiohttp.ServerDisconnectedError, aiohttp.ClientConnectorError):
+                    # We no longer have access to the message, or a connection error occured.
                     continue  # Nothing we can do but ignore it and retry it later. We don't update the cached version!
                 oldmess.content = msg
                 oldmess.embeds[0] = thisembed
+                # Update the cached message to our edited version.
                 await self.client.cacheadd(oldmess)
 
     async def announce(self, record, oneserv=None):
@@ -1584,7 +1585,7 @@ class APIContext:
     async def list(self, command, message):
         """List options and current list of watched streams
 
-        :param command: Command list passed from handler
+        :param command: Command list passed from handler - not needed for list.
         :param message: The discord.Message instance that invoked the handler.
         """
         mydata = self.mydata
@@ -1837,7 +1838,7 @@ class APIContext:
         """Gives announcements for any online streams missing them. Usually due to the bot being offline when the stream
         came online, though recent improvements should limit that.
 
-        :param command: Command list passed from handler
+        :param command: Command list passed from handler, not needed for announceall
         :param message: The discord.Message instance that invoked the handler.
         """
         mydata = self.mydata

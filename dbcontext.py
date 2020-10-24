@@ -1,5 +1,5 @@
 # discord bot with module based functionality.
-# Now based on discord.py version 1.5.0
+# Now based on discord.py version 1.5.1
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
@@ -38,19 +38,6 @@
 #  Can't move, would need to send new and delete old. Not sure it's worth it
 # # I could probably do it for streamoption at least, so it's not a ton at once.
 
-# Maybe check on_message_deleted if it was one of our savedmsg? Then could clear
-# it from our list immediately to allow re-announcing.
-# Only relevant if you delete then <module> announce right after.
-# Could have module announce check if msg is deleted instead?
-#  for context in contdict.values() :
-#      for key,value in context.mydata['SavedMSG'][guild_id] :
-#          if value == message_id :
-#              del context.mydata['SavedMSG'][guild_id][key]
-#              break
-#   Easier to just have announce <stream> announce a stream regardless if it was
-#   already? NO.
-# TODO Revisit this. We would just need to see if the message id is in our cache now, which is a lot quicker.
-#   Also we could possibly watch for edit events and edit our cached version appropriately.
 
 # Import module and setup our client and token.
 from typing import Dict, Union
@@ -69,6 +56,8 @@ import piczelclass
 import twitchclass
 # This holds the needed API keys. You may want to use other methods for storing these.
 import apitoken
+if False:
+    import basecontext  # Not used by needed for typing
 
 # token is the Discord API
 token = apitoken.token
@@ -229,10 +218,40 @@ class LimitedClient:
 fakeclient = LimitedClient(client)
 
 
+@client.event
+async def on_raw_message_delete(rawdata):
+    """Checks if a deleted message was an announcement message, then clears it from SavedMSG if needed.
+
+    :type rawdata: discord.RawMessageDeleteEvent
+    :param rawdata: A discord.RawMessageDeleteEvent with information about the deleted message. Note we'll never have a
+    cached message since we don't use discord.py's caching mechanism.
+    """
+    # print("rawmessagedelete", rawdata)
+    # Try and remove the message from our cache. If it's not in there, do nothing as it's not an announcement message.
+    if await fakeclient.cacheremove(messageid=rawdata.message_id):
+        # If this message is in the cache, it SHOULD be an announcement. Found out for what server and remove it.
+        # print("found message")
+        for context in contdict.values():
+            # Holds the recordname which is using this message_id
+            foundname = None  # Start with None and fill in later.
+            # If this context has a SavedMSG and this guild is in that SavedMSG
+            if context.mydata['SavedMSG'] and context.mydata['SavedMSG'][rawdata.guild_id]:
+                # Iterate over the key+value pairs and try and find out message_id
+                for key, value in context.mydata['SavedMSG'][rawdata.guild_id].items():
+                    # print("raw_message_delete", key, value)
+                    if value == rawdata.message_id:
+                        # print("Found message", key, value)
+                        # If it's found, copy the name to foundname so we can delete it AFTER escaping the loop.
+                        foundname = key
+                        break
+            # print("foundname", foundname)
+            if foundname:
+                del context.mydata['SavedMSG'][rawdata.guild_id][foundname]
+
+
 async def getglobal(guildid, option):
-    """Gets the value for the option given in the global namespace, set in the
-    manage context. This allows for setting an option once for all contexts
-    which read from global.
+    """Gets the value for the option given in the global namespace, set in the manage context. This allows setting an
+    option once for all contexts which read from global.
 
     :type guildid: int
     :type option: str
@@ -262,6 +281,7 @@ async def getglobal(guildid, option):
     return None  # No option of that type found in any location.
 
 
+# Old code to convert from an old style of contexts
 def convertcontexts():
     """Deprecated: Used to convert old contexts to new system for 0.5 due to discord.py changes. Kept in case we need
     to make a similar change again at some point, though the setup for data has changed since then so it will need
@@ -303,7 +323,7 @@ def newcontext(name, handlefunc, data):
     return
 
 
-contdict = {}
+contdict = {}  # type: Dict[str, basecontext.APIContext]
 
 
 # Function to setup a module as a context - handles the module side of adding.
@@ -910,24 +930,6 @@ async def debughandler(command, message):
         # print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         return
-    if command[0] == 'embed':
-        # Debug to create detail embed from picarto stream
-        record = await contdict["picarto"].agetstream(command[1])
-        description = record['title']
-        myembed = discord.Embed(title=record['name'] + " has come online!", url="https://picarto.tv/" + record['name'],
-                                description=description)
-        value = "Multistream: No"
-        if record['multistream']:
-            value = "\nMultistream: Yes"
-        myembed.add_field(name="Adult: " + ("Yes" if record['adult'] else "No"),
-                          value="Viewers: " + str(record['viewers']),
-                          inline=True)
-        myembed.add_field(name=value, value="Gaming: " + ("Yes" if record['gaming'] else "No"), inline=True)
-        # myembed.set_footer(text=picartourl + record['name'])
-        myembed.set_image(url=record['thumbnails']['web'])
-        myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + record['name'].lower() + "/dsdefault.jpg")
-        msg = record['name'] + " has come online! Watch them at <https://picarto.tv/" + record['name'] + ">"
-        await message.channel.send(msg, embed=myembed)
     elif command[0] == 'eval':
         if command[1] == 'await':
             await eval(" ".join(command[2:]))
@@ -1276,7 +1278,7 @@ async def on_message(message):
                 await message.channel.send(msg)
 
 
-# Used when joining a server. Might want something for this.
+# Used when joining a server. Might want something for this. Possibly a good time to setup mydata for contexts
 # @client.event
 # async def on_guild_join(server) :
 #    pass
@@ -1428,7 +1430,7 @@ def savetemps():
 def loadtemps():
     """Loads saved temp data into their modules via their loaddata function"""
     for name, context in contdict.items():  # Iterate over all our contexts
-        data = False  # Clear data
+        data = None  # Clear data
         dname = name + ".dbm"  # Name is the context name, plus .dbm
         try:
             # print("Loading",dname)
@@ -1437,8 +1439,8 @@ def loadtemps():
                 data = pickle.load(g)
                 # print("Found",dname, repr(data))
         except FileNotFoundError:
-            continue  # No file, so we can move to the next one
-        except Exception as e:
+            continue  # No file just means nothing was saved, so we can move to the next one. This is expected often.
+        except Exception as e:  # An actual error is not expected, log it for debugging.
             print("Error loading data for", name, repr(e))
         try:
             if data:  # Assuming unpickling worked, send it to the context
