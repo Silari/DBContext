@@ -32,7 +32,9 @@ class Updated:
     __slots__ = ['failed']
 
     def __init__(self):
-        self.failed = 0
+        # We start with a failed, as it should update immediately when loaded, but if it's down it could take 30 seconds
+        # before the timeout hits and it's set as failed.
+        self.failed = 1
 
     def __bool__(self):
         return self.failed == 0
@@ -422,6 +424,8 @@ class APIContext:
             #  immediately trips the 'API Down' status? Or -3 so it gets one more shot.
             #    pass
             self.parsed.update(saveddata[1])
+            # If we successfully loaded save data, mark it as if it updated
+            self.lastupdate.record(True)
             print(self.name, "loaded data successfully")
         else:
             print(self.name, "discarded old saveddata")
@@ -1425,7 +1429,7 @@ class APIContext:
                     msg = "The " + self.name + " API appears to be down currently, please retry your command after " \
                             "the API has returned. "
                 if len(command) == 1:  # No stream given
-                    msg += "You must specify a stream name to show the detailed record for."
+                    msg += "\nYou must specify a stream name to show the detailed record for."
                 if msg:
                     await message.channel.send(msg)
                 else:
@@ -1586,7 +1590,7 @@ class APIContext:
             added = [*["**" + item + "**" for item in added if item in self.parsed],
                      *[item for item in added if item not in self.parsed]]
             added.sort()
-            msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(added)
+            msg += "\nOk, I am now listening to the following (**online**) streamers: " + ", ".join(added)
         if notfound:  # We wouldn't have any of these if the API is offline
             msg += "\nThe following streams were not found and could not be added: " + ", ".join(notfound)
         if not msg:
