@@ -37,6 +37,12 @@ class Updated:
     def __bool__(self):
         return self.failed == 0
 
+    def __repr__(self):
+        if self.failed == 0:
+            return "True"
+        else:
+            return str(self.failed) + "failures"
+
     def record(self, updated):
         if updated:
             self.failed = 0
@@ -1327,6 +1333,8 @@ class APIContext:
             # If the server isn't showadult, AND this is an adult stream
             await channel.send(embed=myembed)
 
+    # TODO - Make this explicitly respond to commands it doesn't recognize. Had some issues with getting it setup in
+    #  Baku's server where 'add' was missing and it just seemed to do nothing.
     async def handler(self, command, message):
         """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as
         needed.
@@ -1412,8 +1420,14 @@ class APIContext:
                 await self.remove(command, message)
                 return
             elif command[0] == 'detail':
+                msg = ""
+                if not self.lastupdate:  # If the API update failed we can't do this - it'd timeout on the call.
+                    msg = "The " + self.name + " API appears to be down currently, please retry your command after " \
+                            "the API has returned. "
                 if len(command) == 1:  # No stream given
-                    await message.channel.send("You must specify a stream name to show the detailed record for.")
+                    msg += "You must specify a stream name to show the detailed record for."
+                if msg:
+                    await message.channel.send(msg)
                 else:
                     try:
                         await self.detailannounce(command[1], message.guild.id)
@@ -1462,7 +1476,7 @@ class APIContext:
                        "given stream. If no options are provided, lists any overrides currently set. "
                 msg += "\nadd <names>: adds new streams to announce, seperated by a space (any trailing commas are " \
                        "removed). Streams past the server limit of " + str(self.maxlistens) + " will be ignored. "
-                msg += "\announce: immediately announces any online streams that were not previously announced."
+                msg += "\nannounce: immediately announces any online streams that were not previously announced."
                 msg += "\nremove <names>: removes multiple new streams at once, seperated by a space."
                 msg += "\ndetail <name>: Provides details on the given stream, including multi-stream participants, " \
                        "if applicable. Please note that certain options that affect announcements, like stop and " \
@@ -1524,6 +1538,10 @@ class APIContext:
             # If we already are watching it, it must be the correct name.
             # OR if the stream is in parsed, it must be the correct name.
             elif (newstream not in mydata["AnnounceDict"]) and (newstream not in self.parsed):
+                if not self.lastupdate:  # If the API update failed we can't do this - it'd timeout on the call.
+                    msg = "The " + self.name + " API appears to be down currently, please retry your command after " \
+                            "the API has returned. It must be available in order to confirm stream names for adding."
+                    break
                 newrecord = await self.agetstreamoffline(newstream)
                 # print(newrecord)
                 if newrecord is None:
@@ -1564,18 +1582,19 @@ class APIContext:
                         pass  # Channel wasn't in dict, not online, ignore.
                     except ChannelNotSet:
                         pass
-        if added:
+        if added:  # We might have some of these even if the API is offline, if they're in AnnounceDict or parsed
             added = [*["**" + item + "**" for item in added if item in self.parsed],
                      *[item for item in added if item not in self.parsed]]
             added.sort()
             msg += "Ok, I am now listening to the following (**online**) streamers: " + ", ".join(added)
-        if notfound:
+        if notfound:  # We wouldn't have any of these if the API is offline
             msg += "\nThe following streams were not found and could not be added: " + ", ".join(notfound)
         if not msg:
             msg += "Unable to add any streams due to unknown error."
-        if not self.lastupdate:  # Note if the API update failed
-            msg += "\n**The last attempt to update the API failed**, the API may be down. Please try your command " \
-                   "again later. "
+        # We check for API down above now, so this isn't needed. If we didn't hit the check above, then it don't matter
+        # if not self.lastupdate:  # Note if the API update failed
+        #     msg += "\n**The last attempt to update the API failed**, the API may be down. Please try your command " \
+        #            "again later. "
         channel = await self.resolvechannel(message.guild.id)
         if not channel:
             msg += "\nYou must set an announcement channel via the channel command before announcements will work!"

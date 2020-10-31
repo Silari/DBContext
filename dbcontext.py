@@ -960,7 +960,8 @@ async def debughandler(command, message):
         # This lets us see if the last update API call for our stream classes worked
         # print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
         await message.channel.send(
-            "Pica: " + picartoclass.lastupdate + "Picz: " + piczelclass.lastupdate + "Twit: " + twitchclass.lastupdate)
+            "Pica: " + str(picartoclass.lastupdate) + "Picz: " + str(piczelclass.lastupdate) + "Twit: " +
+            str(twitchclass.lastupdate))
     elif command[0] == 'checkstreams':
         streams = 0
         for module in contdict.values():
