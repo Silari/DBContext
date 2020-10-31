@@ -54,7 +54,7 @@ class PicartoRecord(basecontext.StreamRecord):
             if recdict['multistream']:
                 self.multistream = [basecontext.MultiClass(x['adult'], x['name'], x['user_id'])
                                     for x in recdict['multistream']
-                                    if (x['online'] and x['user_id'] != self.name)]
+                                    if (x['online'] and x['name'] != self.name)]
             else:
                 self.multistream = []
             self.online = recdict['online']
