@@ -419,19 +419,20 @@ class APIContext:
         """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it
         will be sent to loaddata shortly after the bot starts, but before the background task updatewrapper is started.
         Return MUST evaluate as True but otherwise can be anything that pickle can handle, and will be returned as is.
-        We return a partial dict from parsed, limited only to streams that are being watched. For twitch, this will be
-        ALL of parsed, since it only REQUESTS streams that are being watched. Also includes a timestamp when the data
-        was saved, checked when it's loaded.
+        Also includes a timestamp when the data was saved, checked when it's loaded, to discard stale data.
 
         :rtype: (datetime.datetime, dict)
         :return: Returns the data to be pickled, or False if there is no data to save. For basecontext, the return is a
         tuple with datetime.datetime.now, and the parsed dict.
         """
         # Go over all the online streams for the module and discard them if no stream is watching them.
-        data = {k: v for k, v in self.parsed.items() if k in self.mydata['AnnounceDict']}
+        # data = {k: v for k, v in self.parsed.items() if k in self.mydata['AnnounceDict']}
+        # We're not filtering anymore, but we still want to make a copy of the dict
+        data = {k: v for k, v in self.parsed.items()}
         # print("savedata",data)
         if len(data) == 0:
-            # If no watched streams are online, we insert a fake record so don't have an empty return.
+            # If no streams are online, we insert a fake record so don't have an empty return.
+            # This is mostly for Twitch now, as it's unlikely no one would be online for the other two.
             data["dbcontext"] = True
         if data:  # This should always be True now as we added a record if there weren't any.
             curtime = datetime.datetime.now(datetime.timezone.utc)
