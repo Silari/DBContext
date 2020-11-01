@@ -64,19 +64,39 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = "1.2"  # Current bot version
+version = "1.3"  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-changelog = '''1.2 Changelog:
-Added custom message cache and disabled discord.py's. This saves RAM and ensures the messages we use are cached.
-Added rmmsg and updated setmsgid to handle added/removing SavedMSG and the cache.
-Added savednames async generator to iterate over all unique stream names with a saved message ID. 
- Used by updatewrapper to find SavedMSGs to verify.
-Added savedids async generator to iterate over all saved message IDs, optionally only those for the given stream name.
- Used in removemsg and updatemsg to find the oldest ID for a stream.'''
+changelog = '''1.3 Changelog:
+Fix notify system breakage due to API changes.
+Embed image is now removed without transforming to dict thanks to that being added to discord.py.
+Changed deprecated fetch_offline_members parameter to Client to chunk_guilds_at_startup.
+Fix to copy dict keys to list when iterating over SavedMSG to prevent an error from modifying the dict during iteration.
+savedata no longer returns False if no data to save, instead return is optional.
+loaddata type updated - only one dict.
+Change to how it checks for an HTML document return - used to see if piczel is in maintenance mode.
+Resolved issue where removemsg would continue the loop without removing the savedmsg if the channel or message were not
+ found.
+API down message now includes date and time of the occurrence.
+TwitchContext now grabs the user records for any streams that come online, which is preserved across update checks. This
+ gives us a bit more information for their embeds: user avatar and total viewers are now part of simple and default 
+ announcement embeds. Detail embeds from the detail command are unchanged.
+Deleted announcement messages are now removed from the cache and SavedMSG - this allows them to be immediately 
+re-announced and stops the bot from trying to edit them anymore.
+Corrected issue in picartorecord that did not remove the parent stream from the list of multi-stream partners.
+Fixed missing character in help messages.
+detail and add commands will no longer attempt API calls if the API is down - instead returns a message stating it is
+ down and to retry later.
+APIs are marked as down immediately on class creation - this should be updated by the initial update before the bot is
+ even fully ready for Discord. If not, the API is almost certainly down even if it hasn't hit the timeout yet, so 
+ commands will give the proper API down message. Loading data successfully will also mark the API as up (since it meant 
+ the API was up recently).
+Fixed help still showing 'listen' command - was changed to 'channel'.
+Unknown commands once again prompt a message from the bot instead of being silently ignored.
+'''
 
 myloop = asyncio.get_event_loop()
 client = discord.Client(loop=myloop, chunk_guilds_at_startup=False, max_messages=None)
@@ -247,6 +267,22 @@ async def on_raw_message_delete(rawdata):
             # print("foundname", foundname)
             if foundname:
                 del context.mydata['SavedMSG'][rawdata.guild_id][foundname]
+
+
+@client.event
+async def on_raw_bulk_message_delete(rawdata):
+    """Checks if a deleted message was an announcement message, then clears it from SavedMSG if needed.
+
+    :type rawdata: discord.RawBulkMessageDeleteEvent
+    :param rawdata: A discord.RawBulkMessageDeleteEvent with information about the deleted message. Note we'll never have a
+    cached message since we don't use discord.py's caching mechanism.
+    """
+    # We could just dupe the code in here and maybe be quicker, but bulk deletes don't happen all that often.
+    data = {'id': 0, 'channel_id': rawdata.channel_id, 'guild_id': rawdata.guild_id}
+    newdata = discord.RawMessageDeleteEvent(data)
+    for messid in rawdata.message_ids:
+        newdata.message_id = messid
+        await on_raw_message_delete(newdata)
 
 
 async def getglobal(guildid, option):
