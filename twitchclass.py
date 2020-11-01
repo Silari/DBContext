@@ -106,23 +106,23 @@ class TwitchRecord(basecontext.StreamRecord):
         # This should get overriden once we get a TwitchContext instance.
         pass
 
-    async def simpembed(self, snowflake=None, offline=False):
+    async def simpembed(self, showtime=None, offline=False):
         """The embed used by the noprev message type. This is general information about the stream, but not everything.
         Users can get a more detailed version using the detail command, but we want something simple for announcements.
 
-        :type snowflake: int
+        :type showtime: bool
         :type offline: bool
         :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
+        :param showtime: Should the title field include how long the stream has ran?
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
         # Generally this should only be used on an online stream. Offline streams are always a detailembed.
         description = self.title
-        if not snowflake:
+        if not showtime:
             embtitle = self.name + " has come online!"
         else:
-            embtitle = await self.streammsg(snowflake, offset=offline)
+            embtitle = await self.streammsg(None, offset=offline)
         noprev = discord.Embed(title=embtitle, url="https://twitch.tv/" + self.name, description=description)
         noprev.add_field(name="Game: " + await self.getgame(self.game_id),
                          value="Viewers: " + str(self.viewers), inline=True)
@@ -138,7 +138,7 @@ class TwitchRecord(basecontext.StreamRecord):
 
         :type showprev: bool
         :rtype: discord.Embed
-        :param showprev: Should the embed include the preview image?
+        :param showprev: Should the embed include the preview image? Generally yes unless it's hidden by adult options.
         :return: a discord.Embed representing the current stream.
         """
         # This is more complicated since there is a different record type needed

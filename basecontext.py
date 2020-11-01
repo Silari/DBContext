@@ -12,7 +12,7 @@
 # for easier management of multiple threads. Most functions used in this should
 # also be coroutines, especially any potentially blocking functions, so that the
 # bot can still be responsive to other requests.
-from typing import Dict, AsyncGenerator
+from typing import Dict, AsyncGenerator, Optional
 
 import discord  # Access to potentially needed classes/methods, Embed
 import aiohttp  # Should be used for any HTTP requests, NOT urllib!
@@ -198,6 +198,9 @@ class StreamRecord:
         :return: a string stating the time the stream has ran for.
         """
         # Find the duration of the stream.
+        # Currently only the stored time is ever used, since the StreamRecord ALWAYS has a stored time, and it's always
+        # at least as accurate as using the message snowflake that we used to use (since Picarto doesn't provide the
+        # stream start time.
         if snowflake:  # If a snowflake was given instead of None
             dur = await APIContext.longertime(snowflake, self.duration)
         else:
@@ -218,14 +221,14 @@ class StreamRecord:
         retstr += timestr
         return retstr
 
-    async def simpembed(self, snowflake=None, offline=False):
+    async def simpembed(self, showtime=None, offline=False):
         """The embed used by the noprev message type. This is general information about the stream, but not everything.
         Users can get a more detailed version using the detail command, but we want something simple for announcements.
 
-        :type snowflake: int
+        :type showtime: bool
         :type offline: bool
         :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
+        :param showtime: Should the title field include how long the stream has ran?
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
@@ -233,10 +236,10 @@ class StreamRecord:
         ismulti = "Multistream: No"
         if self.ismulti:
             ismulti = "Multistream: Yes"
-        if not snowflake:
+        if not showtime:
             embtitle = self.name + " has come online!"
         else:
-            embtitle = await self.streammsg(snowflake, offset=offline)
+            embtitle = await self.streammsg(None, offset=offline)
         noprev = discord.Embed(title=embtitle, url=self.streamurl.format(self.name), description=description)
         noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
                          value="Gaming: " + ("Yes" if self.gaming else "No"),
@@ -245,26 +248,30 @@ class StreamRecord:
         noprev.set_thumbnail(url=self.avatar)
         return noprev
 
-    async def makeembed(self, snowflake=None, offline=False):
+    async def makeembed(self, showtime=None, offline=False):
         """The embed used by the default message type. Same as the simple embed except for added preview of the stream.
         Generally this doesn't need to be overridden as it just adds the preview, which the preview property handles.
 
-        :type snowflake: int
+        :type showtime: bool
         :type offline: bool
         :rtype: discord.Embed
-        :param snowflake: Integer representing a discord Snowflake
+        :param showtime: Should the title field include how long the stream has ran?
         :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
         :return: a discord.Embed representing the current stream.
         """
         # Simple embed is the same, we just need to add a preview image. Save code
-        myembed = await self.simpembed(snowflake, offline)
+        myembed = await self.simpembed(showtime, offline)
         myembed.set_image(url=self.preview_url)  # Add your image here
         return myembed
 
     async def detailembed(self, showprev=True):
-        """Makes a detailed embed from the given record.
+        """This generates the embed to send when detailed info about a stream is requested. More information is provided
+        than with the other embeds.
 
+        :type showprev: bool
         :rtype: discord.Embed
+        :param showprev: Should the embed include the preview image? Generally yes unless it's hidden by adult options.
+        :return: a discord.Embed representing the current stream.
         """
         raise NotImplementedError
 
@@ -286,7 +293,7 @@ class APIContext:
     client = None  # type: LimitedClient
 
     # Is filled by discordbot with a handle to the contexts stored data
-    mydata = None  # type: Dict[str,dict]
+    mydata = None  # type: Dict[str,dict or str]
     # This is a dict that is saved and reloaded by dbcontext. Any item saved in this
     # should be safe for pickling/unpickling via the pickle module.
     # Any data that does not need to be persistent across restarts does NOT need to
@@ -1041,21 +1048,9 @@ class APIContext:
         # that case.
         mydata = self.mydata  # Ease of use and speed reasons
         # If we were provided with a record id, we don't need to find it.
-        oldestid = None
         if not recordid:
             recordid = record.name
         # print("removemsg removing", recordid)
-        if record:  # If we don't have a record, we don't need to generate oldestid as it wouldn't be used anyway.
-            try:
-                oldestid = min([x async for x in self.savedids(recordid)])  # Find the id with the lowest value
-                # We use that lowest value to help calculate how long the stream has
-                # been running for. Ideally we'd always get that info from the API,
-                # but it's not always available (like in picarto's), so we may need
-                # to use the time the message was created instead.
-            except ValueError:
-                # min had no saved messages, we don't have any saved messages to update.
-                # So we can just stop now and save time.
-                return
         # We weren't given a list of servers to use, so grab the list of all servers who watch this stream
         if not serverlist:
             serverlist = mydata['AnnounceDict'][recordid]
@@ -1100,10 +1095,7 @@ class APIContext:
                         # We use oldest id to get the longest possible time this stream ran
                         # This matches how updatemsg sets the time.
                         # newembed['title'] = await record.streammsg(oldestid, offset=True)
-                        # TODO Do I need to provide the snowflake anymore? I set a time in all records now if it isn't
-                        #  preset, so I always know when the bot saw them online first - ie this isn't used since it
-                        #  always fails the longertime call in streammsg - was used for picarto.
-                        oldmess.embeds[0].title = await record.streammsg(oldestid, offset=True)
+                        oldmess.embeds[0].title = await record.streammsg(None, offset=True)
                     # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
                     # the current stored time and use that.
                     else:
@@ -1143,22 +1135,9 @@ class APIContext:
         """
         recordid = record.name  # Keep record name cached
         mydata = self.mydata  # Ease of use and speed reasons
-        try:
-            oldestid = min([x async for x in self.savedids(recordid)])  # Find the id with the lowest value
-            # We use that lowest value to help calculate how long the stream has
-            # been running for. Ideally we'd always get that info from the API,
-            # but it's not always available (like in picarto's), so we may need
-            # to use the time the message was created instead.
-        except ValueError:  # No items in list - wrong/non-compareable types would be a TypeError.
-            # min had no saved messages, we don't have any saved messages to update.
-            # So we can just stop now and save time.
-            return
-        myembed = await record.makeembed(oldestid)
-        noprev = await record.simpembed(oldestid)
-        if apidown:
-            apistring = "\n**The API appears to be down, unable to update.**"
-            myembed.title += apistring
-            noprev.title += apistring
+        # We'll potentially need these more than once, so prep them now. They'll be actually filled later if needed.
+        myembed = None  # type: Optional[discord.Embed]
+        noprev = None  # type: Optional[discord.Embed]
         for server in mydata['AnnounceDict'][recordid]:
             # Get the saved msg for this server
             msgid = await self.getmsgid(server, recordid)
@@ -1191,6 +1170,14 @@ class APIContext:
                     continue
             if not oldmess:  # We still didn't find the message, may be deleted.
                 continue
+            # At this point we're almost def updating the message. If the embeds haven't been created yet, do so now.
+            if not myembed:
+                myembed = await record.makeembed(True)
+                noprev = await record.simpembed(True)
+                if apidown:  # If we're updating these because the API is down, add that message.
+                    apistring = "\n**The API appears to be down, unable to update.**"
+                    myembed.title += apistring
+                    noprev.title += apistring
             if oldmess:
                 msg = oldmess.content  # The text of the message - always present.
                 # If the stream appears to be offline now, edit the announcement slightly.

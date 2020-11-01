@@ -74,7 +74,7 @@ class PicartoRecord(basecontext.StreamRecord):
 
         :type showprev: bool
         :rtype: discord.Embed
-        :param showprev: Should the embed include the preview image?
+        :param showprev: Should the embed include the preview image? Generally yes unless it's hidden by adult options.
         :return: a discord.Embed representing the current stream.
         """
         description = self.title
