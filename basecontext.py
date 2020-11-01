@@ -306,6 +306,9 @@ class APIContext:
 
     maxlistens = 100  # The maximum amount of listens per server
 
+    # Lists all the commands available in this module.
+    commandlist = None  # type: Dict[str,str]
+
     @property
     def apiurl(self):
         """URL to call to find online streams"""
@@ -322,14 +325,14 @@ class APIContext:
         raise NotImplementedError("apiurl must be overridden in the subclass")
 
     def __init__(self, instname=None):
-        # There are two values set by dbcontext after initializing the class:
-        # self.mydata - contains the persistent data for this instance.
-        # self.client - is a LimitedClient instance. It gives partial access to the running Discord.Client.
+        # Holds a string with our instance name. The unique identifier for an instance of APIContext or it's subclasses.
         if instname:
             self.name = instname
         else:
             self.name = self.defaultname
+        # Holds a dict of our stream records.
         self.parsed = parsed  # This should be replaced in the subclass
+        # Tracks whether the last attempt to update the API succeeded.
         self.lastupdate = lastupdate  # This should be replaced in the subclass
         self.defaultdata = {"AnnounceDict": {}, "Servers": {}, "COver": {}, "SavedMSG": {}}
         # This is merged into the dict that dbcontext creates for this context on load,
@@ -383,6 +386,27 @@ class APIContext:
 
         # Again, these are not requirements, but recommended to simplify things. It means being able to subclass the
         # existing classes and use them mostly as is, and time savers are always nice.
+
+        # Holds a dict of valid commands and their descriptions.
+        self.commandlist = {
+            "channel": "starts announcing new streams in the channel it is said. Optionally, mention a "
+                       "channel and that channel will be used instead.",
+            "stop": "stops announcing streams, edits to existing announcements will still occur.",
+            "resume": "resumes announcing streams.",
+            "option": "sets one or more space separated options. See help option for details on available options.",
+            "streamoption": "overrides one or more space separated options for the "
+                            "given stream. If no options are provided, lists any overrides currently set.",
+            "add": "adds new streams to announce, seperated by a space (any trailing commas are removed). Streams past "
+                   "the server limit of " + str(self.maxlistens) + " will be ignored.",
+            "announce": "immediately announces any online streams that were not previously announced.",
+            "remove": "removes multiple new streams at once, seperated by a space.",
+            "detail": "Provides details on the given stream, including multi-stream participants, if applicable. Please"
+                      " note that certain options that affect announcements, like stop and noadult, are ignored. "
+                      "However, adult streams WILL NOT show a preview unless showadult is set. ",
+            "list": "Lists the current announcement channel and all watched streams. Certain options/issues are also "
+                    "included when relevant.",
+            "help": "Shows help information for this module.",
+        }
 
     def savedata(self):
         """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it
@@ -1076,6 +1100,9 @@ class APIContext:
                         # We use oldest id to get the longest possible time this stream ran
                         # This matches how updatemsg sets the time.
                         # newembed['title'] = await record.streammsg(oldestid, offset=True)
+                        # TODO Do I need to provide the snowflake anymore? I set a time in all records now if it isn't
+                        #  preset, so I always know when the bot saw them online first - ie this isn't used since it
+                        #  always fails the longertime call in streammsg - was used for picarto.
                         oldmess.embeds[0].title = await record.streammsg(oldestid, offset=True)
                     # If we don't, this is an offline edit. We can't get the time stream ran for, so just edit
                     # the current stored time and use that.
@@ -1337,8 +1364,6 @@ class APIContext:
             # If the server isn't showadult, AND this is an adult stream
             await channel.send(embed=myembed)
 
-    # TODO - Make this explicitly respond to commands it doesn't recognize. Had some issues with getting it setup in
-    #  Baku's server where 'add' was missing and it just seemed to do nothing.
     async def handler(self, command, message):
         """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as
         needed.
@@ -1440,7 +1465,13 @@ class APIContext:
                             "You must specify an announcement channel via the channel command before calling "
                             "detailannounce")
                 return
-        else:  # No extra command given, or unknown command
+            else:
+                msg = "Unknown command: " + command[0] + ". Please follow the module name with a command, then with" \
+                      " any parameters for the command. The available commands are: " + \
+                      ", ".join(self.commandlist.keys()) + "."
+                await message.channel.send(msg)
+                return
+        else:  # No extra command given, or command was help. Unknown command is handled above now.
             # This is your help area, which should give your users an idea how to use
             # your context.
             if len(command) > 1:
@@ -1454,45 +1485,45 @@ class APIContext:
                     msg += "\nAnnouncement Editing options:"
                     msg += "\ndelete: Same as edit, except announcement is deleted when the stream goes offline."
                     msg += "\nedit: default option. Viewers and other fields are updated periodically. Message is " \
-                           "changed when stream is offline. "
+                           "changed when stream is offline."
                     msg += "\nstatic: messages are not edited or deleted ever."
                     if self.name != 'twitch':  # Twitch doesn't have adult settings, so ignore.
                         msg += "\nAdult stream options:"
                         msg += "\nshowadult: default option. Adult streams are shown normally."
                         msg += "\nhideadult: Adult streams are announced but not previewed."
                         msg += "\nnoadult: Adult streams are not announced. Streams that are marked adult after " \
-                               "announcement will have their previews disabled. "
+                               "announcement will have their previews disabled."
                         msg += "\nThe adult options CAN NOT 100% shield your users from adult content. Forgetful " \
                                "streamers, API errors, bugs in the module, and old adult previews cached by the " \
-                               "streaming site/discord/etc. may allow adult content through. "
+                               "streaming site/discord/etc. may allow adult content through."
                     await message.channel.send(msg)
             # The general help goes here - it should list commands or some site that
             # has a list of them
             else:
                 msg = "The following commands are available for " + self.name + ":"
-                msg += "\nlisten: starts announcing new streams in the channel it is said. Optionally, mention a " \
-                       "channel and that channel will be used instead. "
+                msg += "\nchannel: starts announcing new streams in the channel it is said. Optionally, mention a " \
+                       "channel and that channel will be used instead."
                 msg += "\nstop: stops announcing streams, edits to existing announcements will still occur."
                 msg += "\nresume: resumes announcing streams."
                 msg += "\noption <option(s)>: sets one or more space separated options. See help option for details " \
-                       "on available options. "
+                       "on available options."
                 msg += "\nstreamoption <name> <option(s)>: overrides one or more space separated options for the " \
-                       "given stream. If no options are provided, lists any overrides currently set. "
+                       "given stream. If no options are provided, lists any overrides currently set."
                 msg += "\nadd <names>: adds new streams to announce, seperated by a space (any trailing commas are " \
-                       "removed). Streams past the server limit of " + str(self.maxlistens) + " will be ignored. "
+                       "removed). Streams past the server limit of " + str(self.maxlistens) + " will be ignored."
                 msg += "\nannounce: immediately announces any online streams that were not previously announced."
                 msg += "\nremove <names>: removes multiple new streams at once, seperated by a space."
                 msg += "\ndetail <name>: Provides details on the given stream, including multi-stream participants, " \
                        "if applicable. Please note that certain options that affect announcements, like stop and " \
                        "noadult, are ignored. However, adult streams WILL NOT show a preview unless showadult is set. "
                 msg += "\nlist: Lists the current announcement channel and all watched streams. Certain " \
-                       "options/issues are also included when relevant. "
+                       "options/issues are also included when relevant."
                 msg += "\nSome commands/responses will not work unless an announcement channel is set."
                 msg += "\nPlease note that all commands, options and stream names are case sensitive!"
                 if not self.lastupdate:  # Note if the API update failed
                     msg += "\n**The last attempt to update the API failed!** The API may be down. This will cause " \
                            "certain commands to not work properly. Announcements will resume normally once the API " \
-                           "is connectable. "
+                           "is connectable."
                 await message.channel.send(msg)
             return
 
