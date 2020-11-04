@@ -1,5 +1,6 @@
 # discord bot with module based functionality.
-# Now based on discord.py version 1.5.1
+# based on discord.py:
+discordversion = '1.5.1'
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
@@ -40,7 +41,7 @@
 
 
 # Import module and setup our client and token.
-from typing import Dict, Union
+from typing import Dict, Union  # , Optional
 
 import discord
 import copy  # Needed to deepcopy contexts for periodic saving
@@ -58,6 +59,10 @@ import twitchclass
 import apitoken
 if False:
     import basecontext  # Not used by needed for typing
+
+# Ensure we're using the expected version of discord.py. Not spending 2 hours troubleshooting AGAIN cause of that.
+if discord.__version__ != discordversion:
+    raise ImportError("Version mismatch for discord.py, expected," + discordversion + " found " + discord.__version__)
 
 # token is the Discord API
 token = apitoken.token
@@ -274,8 +279,8 @@ async def on_raw_bulk_message_delete(rawdata):
     """Checks if a deleted message was an announcement message, then clears it from SavedMSG if needed.
 
     :type rawdata: discord.RawBulkMessageDeleteEvent
-    :param rawdata: A discord.RawBulkMessageDeleteEvent with information about the deleted message. Note we'll never have a
-    cached message since we don't use discord.py's caching mechanism.
+    :param rawdata: A discord.RawBulkMessageDeleteEvent with information about the deleted message. Note we'll never
+     have a cached message since we don't use discord.py's caching mechanism.
     """
     # We could just dupe the code in here and maybe be quicker, but bulk deletes don't happen all that often.
     data = {'id': 0, 'channel_id': rawdata.channel_id, 'guild_id': rawdata.guild_id}

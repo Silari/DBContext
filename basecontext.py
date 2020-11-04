@@ -519,7 +519,7 @@ class APIContext:
         except KeyError:  # Guild has no saved messages, or none for that record
             return None
 
-    async def setmsgid(self, guildid, recordid, message: discord.Message = None):
+    async def setmsgid(self, guildid, recordid, message: discord.Message):
         """Sets the snowflake for the message we used to announce the stream in the guild.
 
         :type guildid: int
@@ -527,7 +527,7 @@ class APIContext:
         :type message: discord.Message
         :param guildid: Snowflake for the guild to set the announcement for.
         :param recordid: Name of the stream to set the announcement for.
-        :param message: The Message instance that we are moving from SavedMSG and the cache.
+        :param message: The Message instance that we are adding to SavedMSG and the cache.
         """
         if guildid not in self.mydata['SavedMSG']:
             self.mydata['SavedMSG'][guildid] = {}
@@ -545,9 +545,11 @@ class APIContext:
         :type messageid: int
         :param guildid: Snowflake for the guild to set the announcement for.
         :param recordid: Name of the stream to set the announcement for.
-        :param message: The Message instance that we are moving from SavedMSG and the cache.
+        :param message: The Message instance that we are removing from SavedMSG and the cache.
         :param messageid: The snowflake for the announcement message.
         """
+        # TODO Possibly allow this to work with JUST the msgid, in case we don't know the guild or record.
+        #  Don't know of any occassions but easy enough to traverse savedmsg for it.
         oldid = None
         try:
             oldid = self.mydata['SavedMSG'][guildid].pop(recordid, None)
@@ -1041,7 +1043,8 @@ class APIContext:
         :type serverlist: list[int]
         :type recordid: str
         :param record: A full stream record as returned by the API. Can be None if recordid is provided.
-        :param serverlist: Snowflake for the server in which to give this announcement.
+        :param serverlist: List of Snowflake for the servers in which to remove the announcement. If not provided will
+         get the list of servers listening to the stream.
         :param recordid: String with the name of the stream, used if the full record is unavailable.
         """
         # Sending None for record is supported, in order to allow edit/removal of
@@ -1107,11 +1110,17 @@ class APIContext:
                 try:
                     await oldmess.edit(content=newmsg, embed=newembed, suppress=False)
                 except (discord.NotFound, discord.HTTPException, discord.Forbidden):
+                    # print("Caught exception in edit", repr(e))
+                    # traceback.print_tb(e.__traceback__)
                     pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
-                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update
+                except aiohttp.ServerDisconnectedError:  # Server disconnected attempting to update.
+                    # print("server disconnect error")
                     pass  # Nothing we can do but ignore it. May setup retry logic later
                 except aiohttp.ClientConnectorError:  # Connection failed
+                    # print("client connector error!")
                     pass  # Again, not much to do.
+                # Remove the message from the cache, regardless if it was edited properly. We're done with it.
+                # If we setup retry logic later, we'll need the message instance for that.
                 await self.client.cacheremove(messageid=msgid)
             # We should delete the message
             elif msgopt == "delete":
