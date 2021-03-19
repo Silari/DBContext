@@ -173,6 +173,7 @@ async def resolveuser(userid, guild=None):
     elif userid.startswith('<@'):
         userid = userid[2:-1]
     if guild:
+        # TODO Does this actually still work without intents??? No, no it doesnt. frick.
         if '#' in userid:
             founduser = discord.utils.find(lambda m: str(m) == userid, guild.members)
         else:
