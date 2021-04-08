@@ -1,6 +1,6 @@
 # discord bot with module based functionality.
 # based on discord.py:
-discordversion = '1.5.1'
+discordversion = '1.6.0'
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?

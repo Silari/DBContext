@@ -112,8 +112,8 @@ class PicartoRecord(basecontext.StreamRecord):
 class PicartoContext(basecontext.APIContext):
     defaultname = "picarto"  # This is used to name this context and is the command to call it. Must be unique.
     streamurl = "https://picarto.tv/{0}"  # URL for going to watch the stream
-    apiurl = "https://api.picarto.tv/v1/online?adult=true&gaming=true"  # URL to call to find online streams
-    channelurl = "https://api.picarto.tv/v1/channel/name/{0}"  # URL to call to get information on a single stream
+    apiurl = "https://api.picarto.tv/api/v1/online?adult=true&gaming=true"  # URL to call to find online streams
+    channelurl = "https://api.picarto.tv/api/v1/channel/name/{0}"  # URL to call to get information on a single stream
     recordclass = PicartoRecord
 
     def __init__(self, instname=None):
