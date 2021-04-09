@@ -58,7 +58,8 @@ class PicartoRecord(basecontext.StreamRecord):
             else:
                 self.multistream = []
             self.online = recdict['online']
-            self.time = datetime.datetime.strptime(''.join(recdict['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
+            self.time = datetime.datetime.strptime(''.join(recdict['last_live']), '%Y-%m-%d %H:%M:%S')\
+                .replace(tzinfo=datetime.timezone.utc)
             self.avatar = recdict['avatar']  # We COULD make this ourself same as below, but easier to just grab it.
             self.viewers_total = recdict['viewers_total']
         else:
