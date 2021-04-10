@@ -115,6 +115,10 @@ invite = "https://discordapp.com/api/oauth2/authorize?client_id=5533352777044459
 # URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
+# Holds the message we want used for our Presence status
+presencemessage: str = ''
+
+
 # Timeout used for our aiohttp instance
 conntimeout = 30
 
@@ -1002,7 +1006,7 @@ async def debughandler(command, message):
         # This lets us see if the last update API call for our stream classes worked
         # print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
         await message.channel.send(
-            "Pica: " + str(picartoclass.lastupdate) + "Picz: " + str(piczelclass.lastupdate) + "Twit: " +
+            "Pica: " + str(picartoclass.lastupdate) + " Picz: " + str(piczelclass.lastupdate) + " Twit: " +
             str(twitchclass.lastupdate))
     elif command[0] == 'checkstreams':
         streams = 0
@@ -1060,6 +1064,10 @@ async def debughandler(command, message):
         print(msg)
         msg = "Top Role: " + message.guild.me.top_role.name + " " + str(message.guild.me.top_role.position)
         print(msg)
+    elif command[0] == 'setstatus':
+        global presencemessage
+        presencemessage = " ".join(command[1:])
+        await set_presence()
 
 
 newcontext("debug", debughandler, {})
@@ -1326,11 +1334,18 @@ async def on_message(message):
 # async def on_guild_join(server) :
 #    pass
 
+async def set_presence():
+    if presencemessage:  # We've set a new message instead of the default, use it.
+        await client.change_presence(activity=discord.Game(name=str(presencemessage)))
+    else:
+        await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
+
+
 @client.event
 async def on_resumed():
     """Ensure our activity is set when resuming and add a log that it resumed."""
     # print("Client resumed")
-    await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
+    await set_presence()
 
 
 @client.event
@@ -1339,7 +1354,7 @@ async def on_ready():
     print("------\nLogged in as", client.user.name, client.user.id, "\n------")
     # We set our activity here - we can't do it in the client creation because
     # we didn't have the user name yet
-    await client.change_presence(activity=discord.Game(name="@" + client.user.name + " help"))
+    await set_presence()
 
 
 # Old method to close tasks and log out
