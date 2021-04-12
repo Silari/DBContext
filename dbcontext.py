@@ -464,7 +464,7 @@ async def helphandler(command, message):
             msg += "\nNote that the link includes the permissions that I will be granted when joined.\n"
             msg += "\nThe current link is: <" + invite + ">"
             msg += "\nIf the bot is already in your server, re-inviting will NOT change the current permissions."
-            await message.reply(msg)
+            await message.reply(msg, mention_author=False)
             return
         elif command[0] in contfuncs:  # User asking for help with a context.
             # Redirect the command to the given module.
@@ -479,7 +479,7 @@ async def helphandler(command, message):
     msg += "\nThe following modules are available for use: " + ", ".join(contexts)
     msg += "\nI listen to commands on any channel from users with the Manage Server permission."
     msg += " Additionally, I will listen to commands from users with a role named " + str(managerolename)
-    await message.reply(msg)
+    await message.reply(msg, mention_author=False)
     return
 
 
@@ -675,12 +675,12 @@ async def managehandler(command, message):
             msg += "\n**Bot does not** have permission to manage user roles. Only help, check, notifyoff, and perms " \
                    "commands will work. "
             msg += "\nPlease manually add the 'manage roles' permission to make use of additional features."
-        await message.reply(msg)
+        await message.reply(msg, mention_author=False)
         return
     validcommands = ('help', 'check', 'add', 'remove', 'setupchan', 'notifyon', 'notifyoff', 'perms')
     if not command[0] in validcommands:
         await message.reply("Please provide one of the following commands: " +
-                            ",".join(validcommands))
+                            ",".join(validcommands), mention_author=False)
         return
     # We check what permissions are missing and inform the user why we need them
     if command[0] == 'perms':
@@ -739,12 +739,12 @@ async def managehandler(command, message):
                 msg += "\nMissing 'Send Messages' perm for #" + message.channel.name + \
                        ". This permission is needed to send messages to the channel. "
                 # So instead of responding in channel, we PM it to the user
-                await message.reply(msg)
+                await message.reply(msg, mention_author=False)
                 return  # And return so we don't try to send it twice
         if msg:  # We had at least one permission missing
-            await message.reply(msg)
+            await message.reply(msg, mention_author=False)
         else:
-            await message.reply("Bot has no missing permissions.")
+            await message.reply("Bot has no missing permissions.", mention_author=False)
         return
     if command[0] == 'check':
         hasperm = set()
@@ -775,7 +775,7 @@ async def managehandler(command, message):
         if not msg:  # Should never happen, but maybe no user names were provided.
             msg += "Unable to check any users due to unknown error. Please ensure you provided a list of usernames " \
                    "with discriminator to check. "
-        await message.reply(msg)
+        await message.reply(msg, mention_author=False)
         return
     mydata = contexts['manage']['Data']  # Keep a reference to our module data
     # notify off is the only one of these that DOESNT require permissions.
@@ -800,14 +800,15 @@ async def managehandler(command, message):
                 msg += " I have also attempted to unpin the old reaction message."
             else:
                 msg += " The old reaction message is no longer needed and can be unpinned."
-            await message.reply(msg)
+            await message.reply(msg, mention_author=False)
             return
-        await message.reply("Notifications are currently off for this server.")
+        await message.reply("Notifications are currently off for this server.", mention_author=False)
         return
     # See if we have permission to add/remove user roles. If not, say so
     if not message.channel.permissions_for(message.guild.me).manage_roles:
         await message.reply(
-            "Bot does not have permission to manage user roles, requested command can not be completed without it.")
+            "Bot does not have permission to manage user roles, requested command can not be completed without it.",
+            mention_author=False)
         return  # We can't do any of the following things without it, so quit
     if command[0] == 'notifyon':
         # Step 1 - Find/Create the role
@@ -817,12 +818,14 @@ async def managehandler(command, message):
         if not notifyrole:
             # We couldn't find or make the role. We already checked for permissions, so this shouldn't happen, but JIC
             await message.reply(
-                "Unable to create/find the necessary role. Please ensure the bot has the manage_roles permission.")
+                "Unable to create/find the necessary role. Please ensure the bot has the manage_roles permission.",
+                mention_author=False)
             return
         # Check if role is assignable by the bot.
         if message.guild.me.top_role.position < notifyrole.position:
             await message.reply("Notify role position is higher than the bots highest role. Please move the "
-                                "notify role below the " + message.guild.me.top_role.name + " role.")
+                                "notify role below the " + message.guild.me.top_role.name + " role.",
+                                mention_author=False)
             return
         # Step 2 - Check if we already are on
         if message.guild.id in mydata['notifyserver']:  # Is notify on?
@@ -835,7 +838,7 @@ async def managehandler(command, message):
                 if notifyrole.id != mydata['notifymsg'][savedmsgid]:
                     mydata['notifymsg'][savedmsgid] = notifyrole.id
                     msg += " . The stored notify role ID did not match the found role. It has been reset."
-                await message.reply(msg)
+                await message.reply(msg, mention_author=False)
                 if not foundmsg.pinned:  # Try to pin the message if it isn't.
                     try:
                         await foundmsg.pin()
@@ -854,7 +857,7 @@ async def managehandler(command, message):
         sentmsg = await message.reply(
             "Notifications are enabled for this server. To receive a notification when stream announcements are set, "
             "please react to this message with :sound:. To stop receiving notifications, unreact the :sound: "
-            "reaction.\nIt is HIGHLY recommended this message be left pinned for users to find!")
+            "reaction.\nIt is HIGHLY recommended this message be left pinned for users to find!", mention_author=False)
         # Step 4 - Add the server+msgid and msgid+roleid to the dicts.
         mydata['notifyserver'][message.guild.id] = sentmsg.id
         mydata['notifymsg'][sentmsg.id] = notifyrole.id
@@ -870,14 +873,14 @@ async def managehandler(command, message):
     if not managerole:  # Manage role doesn't exist, make it now as we'll need it
         managerole = await makeuserrole(message.guild)
     if not managerole:  # This isn't due to permissions issues, as we check that above
-        await message.reply("Unable to obtain/create the necessary role for an unknown reason.")
+        await message.reply("Unable to obtain/create the necessary role for an unknown reason.", mention_author=False)
         return
     if managerole and (message.guild.me.top_role.position < managerole.position):
         msg = "Bot does not have permission to manage the " + managerole.name + " role due to the role's position."
         msg += "\nPlease ensure the " + managerole.name + " role is below the bots role."
         msg += "\n" + managerole.name + " position: " + str(managerole.position) + ". Bots highest position: " + str(
             message.guild.me.top_role.position)
-        await message.reply(msg)
+        await message.reply(msg, mention_author=False)
         return
     if command[0] == 'setupchan':
         if message.channel_mentions:  # We can't do anything if they didn't include a channel
@@ -886,7 +889,7 @@ async def managehandler(command, message):
                 # Validate the mentions are in this guild. It SEEMS either Discord or discord.py doesn't include them
                 # anyway, but just to be sure we're still gonna check it.
                 if channel.guild != message.guild:
-                    await message.reply("I could not find " + channel.name + " in this server.")
+                    await message.reply("I could not find " + channel.name + " in this server.", mention_author=False)
                     continue
                 msg = channel.name + ": "
                 # Set everyone role to be able to read but not send in the channel
@@ -910,9 +913,9 @@ async def managehandler(command, message):
                     msg += "\nRead+Send permissions given to role for channel " + channel.name
                 except discord.Forbidden:
                     msg += "\nFailed to give read+write permissions to management role for channel."
-                await message.reply(msg)
+                await message.reply(msg, mention_author=False)
             return
-        await message.reply("You must mention one or more channels to be setup.")
+        await message.reply("You must mention one or more channels to be setup.", mention_author=False)
         return
     if command[0] == 'add':
         added = set()
@@ -931,7 +934,7 @@ async def managehandler(command, message):
             msg += "\nThe following users were not found and could not be added: " + ", ".join(notfound)
         if not msg:
             msg += "Unable to add any users due to unknown error."
-        await message.reply(msg)
+        await message.reply(msg, mention_author=False)
     if command[0] == 'remove':
         removed = set()
         msg = ""
@@ -949,7 +952,7 @@ async def managehandler(command, message):
             msg += "\nThe following users were not found: " + ", ".join(notfound)
         if not msg:
             msg += "Unable to remove roles from any users due to unknown error."
-        await message.reply(msg)
+        await message.reply(msg, mention_author=False)
 
 
 # Add our context, default data is to have two empty dicts: notifyserver and notifymsg
@@ -1299,7 +1302,7 @@ async def on_message(message):
                 msg = client.user.name + " bot version " + str(version)
                 msg += "\nPlease use '@" + client.user.name + " help' for help on using the bot."
                 msg += "\nOnline help is available at <" + helpurl + ">."
-                await message.reply(msg)
+                await message.reply(msg, mention_author=False)
             elif command[1] in contexts:
                 # print("calling module",command[1], command[2:])
                 # If we don't have permission to send messages in the channel, don't use
@@ -1326,7 +1329,7 @@ async def on_message(message):
                 msg = "Unknown module '" + command[
                     1] + "'. Remember, you must specify the module name before the command - e.g. 'picarto " + " ".join(
                     command[1:]) + "'"
-                await message.reply(msg)
+                await message.reply(msg, mention_author=False)
 
 
 # Used when joining a server. Might want something for this. Possibly a good time to setup mydata for contexts
