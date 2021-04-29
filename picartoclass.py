@@ -50,6 +50,7 @@ class PicartoRecord(basecontext.StreamRecord):
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
         self.preview = recdict['thumbnails']['web']
+        self.avatar = recdict['avatar']  # This is now provided by the API always, which is good as it's not static
         if detailed:
             if recdict['multistream']:
                 self.multistream = [basecontext.MultiClass(x['adult'], x['name'], x['user_id'])
@@ -60,12 +61,10 @@ class PicartoRecord(basecontext.StreamRecord):
             self.online = recdict['online']
             self.time = datetime.datetime.strptime(''.join(recdict['last_live']), '%Y-%m-%d %H:%M:%S')\
                 .replace(tzinfo=datetime.timezone.utc)
-            self.avatar = recdict['avatar']  # We COULD make this ourself same as below, but easier to just grab it.
             self.viewers_total = recdict['viewers_total']
         else:
             # Non detailed records omit the time and avatar URLs, but we can make those easily enough.
             self.time = datetime.datetime.now(datetime.timezone.utc)
-            self.avatar = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault.jpg "
             self.multistream = recdict['multistream']
             self.online = True
 
