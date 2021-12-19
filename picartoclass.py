@@ -33,6 +33,8 @@ def getstream(recordid):
         return False
 
 
+# TODO May want to make this replace Gaming with Private if Private is enabled. Happens rarely but useful if it does.
+#  'private' was the key for this, is it still?
 class PicartoRecord(basecontext.StreamRecord):
 
     __slots__ = []
@@ -59,6 +61,7 @@ class PicartoRecord(basecontext.StreamRecord):
             else:
                 self.multistream = []
             self.online = recdict['online']
+            # TODO Sometimes time is None, presumably if they have never streamed. This fails here.
             self.time = datetime.datetime.strptime(''.join(recdict['last_live']), '%Y-%m-%d %H:%M:%S')\
                 .replace(tzinfo=datetime.timezone.utc)
             self.viewers_total = recdict['viewers_total']

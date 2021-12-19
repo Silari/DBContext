@@ -440,7 +440,7 @@ class APIContext:
 
     def loaddata(self, saveddata):
         """Loads data previously saved by savedata and reintegrates it into self.parsed. Includes a check that the data
-        is less than an hour old, and discards it if it is.
+        is less than an hour old, and discards it if it is older.
 
         :rtype: bool
         :type saveddata: (datetime.datetime,dict)

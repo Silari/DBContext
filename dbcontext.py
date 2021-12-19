@@ -1012,6 +1012,7 @@ async def debughandler(command, message):
             "Pica: " + str(picartoclass.lastupdate) + " Picz: " + str(piczelclass.lastupdate) + " Twit: " +
             str(twitchclass.lastupdate))
     elif command[0] == 'checkstreams':
+        # Counts total announced streams
         streams = 0
         for module in contdict.values():
             try:
@@ -1021,17 +1022,18 @@ async def debughandler(command, message):
                 pass
         await message.channel.send("Total online streams: " + str(streams))
     elif command[0] == 'checkservers':
-        # debug replyeval repr(client.guilds)
-        # above gives details on servers
+        # Counts how many servers the bot is in
         await message.channel.send("I am currently in " + str(len(client.guilds)) + " servers.")
+    elif command[0] == 'listguilds':
+        await message.channel.send(repr(client.guilds))
     elif command[0] == 'channelperms':
         # Gets the effective permissions for the bot in the given channel id
         if len(command) > 0:
             foundchan = client.get_channel(command[1])
             print(foundchan.permissions_for(foundchan.guild.me))
-    elif command[0] == 'getmessage':
+    elif command[0] == 'getmessage':  # Part of testing the below command
         print(await message.channel.fetch_message(command[1]))
-    elif command[0] == 'editmessage':
+    elif command[0] == 'editmessage':  # Used to test undoing embed suppression
         msg = await message.channel.fetch_message(command[1])
         await msg.edit(content=" ".join(command[2:]), suppress=False)
     elif command[0] == 'purge' and len(command) > 1:
@@ -1039,19 +1041,21 @@ async def debughandler(command, message):
         if message.guild.id == 318253682485624832:  # ONLY in my server
             await message.channel.purge(after=discord.Object(int(command[1])))
     elif command[0] == 'clearsaved':
+        # Removes all saved announcement messages.
+        # Thinking on it, this probably leaves them stuck in the message cache. Not a big deal but maybe fix later.
         for module in contdict.values():
             try:
                 module.mydata['SavedMSG'].clear()
             except KeyError:
                 pass
-    elif command[0] == 'listguilds':
-        await message.channel.send(repr(client.guilds))
     elif command[0] == 'rename':
+        # Tested for renaming the bot manage role due to a discord issue with having it named the same as the bot
         for guild in client.guilds:
             msg = await renamerole(guild)
             print(msg)  # await message.channel.send(msg)
         return
     elif command[0] == 'testresolve':
+        # Tests the resolveuser command for User and Member searching.
         ret = []
         for comm in command[1:]:
             found = await resolveuser(comm)
@@ -1060,13 +1064,6 @@ async def debughandler(command, message):
             ret.append(found)
         print("testresolve", ret)
         return
-    elif command[0] == 'testtop':
-        msg = "Roles:"
-        for myrole in message.guild.me.roles:
-            msg += " Name: " + myrole.name + " Position:" + str(myrole.position)
-        print(msg)
-        msg = "Top Role: " + message.guild.me.top_role.name + " " + str(message.guild.me.top_role.position)
-        print(msg)
     elif command[0] == 'setstatus':
         global presencemessage
         presencemessage = " ".join(command[1:])
@@ -1362,7 +1359,7 @@ async def on_ready():
 
 # Old method to close tasks and log out
 def closebot():
-    myloop.run_until_complete(client.logout())
+    myloop.run_until_complete(client.close())
     for t in asyncio.Task.all_tasks(loop=client.loop):
         if t.done():
             t.exception()
@@ -1382,7 +1379,7 @@ def closebot():
 
 # Logs the bot out and ends all tasks
 async def aclosebot():
-    await client.logout()
+    await client.close()
     for t in asyncio.Task.all_tasks(loop=client.loop):
         if t.done():  # Task is finished, we can skip it
             # t.exception() #This would show the exception, but we don't care
