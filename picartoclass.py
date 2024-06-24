@@ -54,7 +54,7 @@ class PicartoRecord(basecontext.StreamRecord):
             if recdict['multistream']:
                 self.multistream = [basecontext.MultiClass(x['adult'], x['name'], x['user_id'])
                                     for x in recdict['multistream']
-                                    if (x['online'] and x['user_id'] != self.name)]
+                                    if (x['online'] and x['name'] != self.name)]
             else:
                 self.multistream = []
             self.online = recdict['online']
@@ -74,7 +74,7 @@ class PicartoRecord(basecontext.StreamRecord):
 
         :type showprev: bool
         :rtype: discord.Embed
-        :param showprev: Should the embed include the preview image?
+        :param showprev: Should the embed include the preview image? Generally yes unless it's hidden by adult options.
         :return: a discord.Embed representing the current stream.
         """
         description = self.title

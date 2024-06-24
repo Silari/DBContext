@@ -127,7 +127,7 @@ class PiczelRecord(basecontext.StreamRecord):
 
         :type showprev: bool
         :rtype: discord.Embed
-        :param showprev: Should the embed include the preview image?
+        :param showprev: Should the embed include the preview image? Generally yes unless it's hidden by adult options.
         :return: a discord.Embed representing the current stream.
         """
         # This generates the embed to send when detailed info about a stream is
@@ -208,6 +208,8 @@ class PiczelContext(basecontext.APIContext):
             print("piczel agetstream", repr(e))
             record = False
         return PiczelRecord(record, True)
+
+    agetstreamoffline = agetstream
 
     async def getrecordid(self, record):
         """Gets the name of the record used to uniquely id the stream. Generally, record['name'] or possibly

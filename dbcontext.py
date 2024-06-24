@@ -1,5 +1,6 @@
 # discord bot with module based functionality.
-# Now based on discord.py version 1.3.3
+# based on discord.py:
+discordversion = '1.5.1'
 
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
@@ -38,22 +39,9 @@
 #  Can't move, would need to send new and delete old. Not sure it's worth it
 # # I could probably do it for streamoption at least, so it's not a ton at once.
 
-# Maybe check on_message_deleted if it was one of our savedmsg? Then could clear
-# it from our list immediately to allow re-announcing.
-# Only relevant if you delete then <module> announce right after.
-# Could have module announce check if msg is deleted instead?
-#  for context in contdict.values() :
-#      for key,value in context.mydata['SavedMSG'][guild_id] :
-#          if value == message_id :
-#              del context.mydata['SavedMSG'][guild_id][key]
-#              break
-#   Easier to just have announce <stream> announce a stream regardless if it was
-#   already? NO.
-# TODO Revisit this. We would just need to see if the message id is in our cache now, which is a lot quicker.
-#   Also we could possibly watch for edit events and edit our cached version appropriately.
 
 # Import module and setup our client and token.
-from typing import Dict, Union
+from typing import Dict, Union  # , Optional
 
 import discord
 import copy  # Needed to deepcopy contexts for periodic saving
@@ -69,28 +57,54 @@ import piczelclass
 import twitchclass
 # This holds the needed API keys. You may want to use other methods for storing these.
 import apitoken
+if False:
+    import basecontext  # Not used by needed for typing
+
+# Ensure we're using the expected version of discord.py. Not spending 2 hours troubleshooting AGAIN cause of that.
+if discord.__version__ != discordversion:
+    raise ImportError("Version mismatch for discord.py, expected," + discordversion + " found " + discord.__version__)
 
 # token is the Discord API
 token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = "1.2"  # Current bot version
+version = "1.3"  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-changelog = '''1.2 Changelog:
-Added custom message cache and disabled discord.py's. This saves RAM and ensures the messages we use are cached.
-Added rmmsg and updated setmsgid to handle added/removing SavedMSG and the cache.
-Added savednames async generator to iterate over all unique stream names with a saved message ID. 
- Used by updatewrapper to find SavedMSGs to verify.
-Added savedids async generator to iterate over all saved message IDs, optionally only those for the given stream name.
- Used in removemsg and updatemsg to find the oldest ID for a stream.'''
+changelog = '''1.3 Changelog:
+Fix notify system breakage due to API changes.
+Embed image is now removed without transforming to dict thanks to that being added to discord.py.
+Changed deprecated fetch_offline_members parameter to Client to chunk_guilds_at_startup.
+Fix to copy dict keys to list when iterating over SavedMSG to prevent an error from modifying the dict during iteration.
+savedata no longer returns False if no data to save, instead return is optional.
+loaddata type updated - only one dict.
+Change to how it checks for an HTML document return - used to see if piczel is in maintenance mode.
+Resolved issue where removemsg would continue the loop without removing the savedmsg if the channel or message were not
+ found.
+API down message now includes date and time of the occurrence.
+TwitchContext now grabs the user records for any streams that come online, which is preserved across update checks. This
+ gives us a bit more information for their embeds: user avatar and total viewers are now part of simple and default 
+ announcement embeds. Detail embeds from the detail command are unchanged.
+Deleted announcement messages are now removed from the cache and SavedMSG - this allows them to be immediately 
+re-announced and stops the bot from trying to edit them anymore.
+Corrected issue in picartorecord that did not remove the parent stream from the list of multi-stream partners.
+Fixed missing character in help messages.
+detail and add commands will no longer attempt API calls if the API is down - instead returns a message stating it is
+ down and to retry later.
+APIs are marked as down immediately on class creation - this should be updated by the initial update before the bot is
+ even fully ready for Discord. If not, the API is almost certainly down even if it hasn't hit the timeout yet, so 
+ commands will give the proper API down message. Loading data successfully will also mark the API as up (since it meant 
+ the API was up recently).
+Fixed help still showing 'listen' command - was changed to 'channel'.
+Unknown commands once again prompt a message from the bot instead of being silently ignored.
+'''
 
 myloop = asyncio.get_event_loop()
-client = discord.Client(loop=myloop, fetch_offline_members=False, max_messages=None)
+client = discord.Client(loop=myloop, chunk_guilds_at_startup=False, max_messages=None)
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
@@ -229,10 +243,56 @@ class LimitedClient:
 fakeclient = LimitedClient(client)
 
 
+@client.event
+async def on_raw_message_delete(rawdata):
+    """Checks if a deleted message was an announcement message, then clears it from SavedMSG if needed.
+
+    :type rawdata: discord.RawMessageDeleteEvent
+    :param rawdata: A discord.RawMessageDeleteEvent with information about the deleted message. Note we'll never have a
+    cached message since we don't use discord.py's caching mechanism.
+    """
+    # print("rawmessagedelete", rawdata)
+    # Try and remove the message from our cache. If it's not in there, do nothing as it's not an announcement message.
+    if await fakeclient.cacheremove(messageid=rawdata.message_id):
+        # If this message is in the cache, it SHOULD be an announcement. Found out for what server and remove it.
+        # print("found message")
+        for context in contdict.values():
+            # Holds the recordname which is using this message_id
+            foundname = None  # Start with None and fill in later.
+            # If this context has a SavedMSG and this guild is in that SavedMSG
+            if context.mydata['SavedMSG'] and context.mydata['SavedMSG'][rawdata.guild_id]:
+                # Iterate over the key+value pairs and try and find out message_id
+                for key, value in context.mydata['SavedMSG'][rawdata.guild_id].items():
+                    # print("raw_message_delete", key, value)
+                    if value == rawdata.message_id:
+                        # print("Found message", key, value)
+                        # If it's found, copy the name to foundname so we can delete it AFTER escaping the loop.
+                        foundname = key
+                        break
+            # print("foundname", foundname)
+            if foundname:
+                del context.mydata['SavedMSG'][rawdata.guild_id][foundname]
+
+
+@client.event
+async def on_raw_bulk_message_delete(rawdata):
+    """Checks if a deleted message was an announcement message, then clears it from SavedMSG if needed.
+
+    :type rawdata: discord.RawBulkMessageDeleteEvent
+    :param rawdata: A discord.RawBulkMessageDeleteEvent with information about the deleted message. Note we'll never
+     have a cached message since we don't use discord.py's caching mechanism.
+    """
+    # We could just dupe the code in here and maybe be quicker, but bulk deletes don't happen all that often.
+    data = {'id': 0, 'channel_id': rawdata.channel_id, 'guild_id': rawdata.guild_id}
+    newdata = discord.RawMessageDeleteEvent(data)
+    for messid in rawdata.message_ids:
+        newdata.message_id = messid
+        await on_raw_message_delete(newdata)
+
+
 async def getglobal(guildid, option):
-    """Gets the value for the option given in the global namespace, set in the
-    manage context. This allows for setting an option once for all contexts
-    which read from global.
+    """Gets the value for the option given in the global namespace, set in the manage context. This allows setting an
+    option once for all contexts which read from global.
 
     :type guildid: int
     :type option: str
@@ -262,6 +322,7 @@ async def getglobal(guildid, option):
     return None  # No option of that type found in any location.
 
 
+# Old code to convert from an old style of contexts
 def convertcontexts():
     """Deprecated: Used to convert old contexts to new system for 0.5 due to discord.py changes. Kept in case we need
     to make a similar change again at some point, though the setup for data has changed since then so it will need
@@ -303,7 +364,7 @@ def newcontext(name, handlefunc, data):
     return
 
 
-contdict = {}
+contdict = {}  # type: Dict[str, basecontext.APIContext]
 
 
 # Function to setup a module as a context - handles the module side of adding.
@@ -656,10 +717,10 @@ async def managehandler(command, message):
         # emoji for the reaction to add/remove notification role.
         #        if not myperms.external_emojis :
         #            msg += "\nMissing 'External Emojis' perm. This permission is needed for nothing right now."
-        # Check for send message permission. This MUST BE DONE LAST due to the PM
-        # if we can't send messages to the channel.
-        # If a channel was mentioned check send permissions there, unless it was
-        # the same channel the message was sent in.
+        # Check for send message permission. This MUST BE DONE LAST due to the PM if we can't send messages to the
+        # channel.
+        # If a channel was mentioned check send permissions there, unless it was the same channel the message was sent
+        # in.
         if (len(message.channel_mentions) > 0 and
                 message.channel_mentions[0] != message.channel):
             if not message.channel_mentions[0].permissions_for(
@@ -910,24 +971,6 @@ async def debughandler(command, message):
         # print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         return
-    if command[0] == 'embed':
-        # Debug to create detail embed from picarto stream
-        record = await contdict["picarto"].agetstream(command[1])
-        description = record['title']
-        myembed = discord.Embed(title=record['name'] + " has come online!", url="https://picarto.tv/" + record['name'],
-                                description=description)
-        value = "Multistream: No"
-        if record['multistream']:
-            value = "\nMultistream: Yes"
-        myembed.add_field(name="Adult: " + ("Yes" if record['adult'] else "No"),
-                          value="Viewers: " + str(record['viewers']),
-                          inline=True)
-        myembed.add_field(name=value, value="Gaming: " + ("Yes" if record['gaming'] else "No"), inline=True)
-        # myembed.set_footer(text=picartourl + record['name'])
-        myembed.set_image(url=record['thumbnails']['web'])
-        myembed.set_thumbnail(url="https://picarto.tv/user_data/usrimg/" + record['name'].lower() + "/dsdefault.jpg")
-        msg = record['name'] + " has come online! Watch them at <https://picarto.tv/" + record['name'] + ">"
-        await message.channel.send(msg, embed=myembed)
     elif command[0] == 'eval':
         if command[1] == 'await':
             await eval(" ".join(command[2:]))
@@ -958,7 +1001,8 @@ async def debughandler(command, message):
         # This lets us see if the last update API call for our stream classes worked
         # print(picartoclass.lastupdate,piczelclass.lastupdate,twitchclass.lastupdate)
         await message.channel.send(
-            "Pica: " + picartoclass.lastupdate + "Picz: " + piczelclass.lastupdate + "Twit: " + twitchclass.lastupdate)
+            "Pica: " + str(picartoclass.lastupdate) + "Picz: " + str(piczelclass.lastupdate) + "Twit: " +
+            str(twitchclass.lastupdate))
     elif command[0] == 'checkstreams':
         streams = 0
         for module in contdict.values():
@@ -982,7 +1026,7 @@ async def debughandler(command, message):
     elif command[0] == 'editmessage':
         msg = await message.channel.fetch_message(command[1])
         await msg.edit(content=" ".join(command[2:]), suppress=False)
-    elif command[0] == 'purge' and len(command[0]) > 1:
+    elif command[0] == 'purge' and len(command) > 1:
         # Attempt to delete messages after the given message id
         if message.guild.id == 318253682485624832:  # ONLY in my server
             await message.channel.purge(after=discord.Object(int(command[1])))
@@ -1079,10 +1123,10 @@ async def on_member_update(before, after):
      :param before: discord.Member with the state before the change that prompted the event.
      :param after: discord.Member with the state after the change that prompted the event.
      """
-    if before.guild.id != 253682347420024832:
-        return
     # print(repr(before.roles))
     # print(repr(after.roles))
+    if before.guild.id != 253682347420024832:
+        return
     # If roles are the same, do nothing
     if before.roles == after.roles:
         return
@@ -1161,8 +1205,11 @@ async def on_raw_reaction_remove(rawreact):
         guild = client.get_guild(rawreact.guild_id)
         rawreact.member = guild.get_member(rawreact.user_id)
         if not rawreact.member:  # Something bad happened
+            # Due to the changes caused by Intents we don't have Members cached and remove doesn't include it, unlike
+            # add. managenotify works around this in a hacky way, but we COULD remove this entirely and just rely on
+            # adding the mute reaction instead.
             # print("RawReactRemove was unable to find the user Member")
-            return
+            pass  # return
         await managenotify(rawreact, guild)
     return
 
@@ -1192,7 +1239,14 @@ async def managenotify(rawreact, guild):
     if rawreact.event_type == "REACTION_ADD":  # Add the role
         await rawreact.member.add_roles(notifyrole, reason="Adding user to notify list")
     elif rawreact.event_type == "REACTION_REMOVE":  # Remove the role
-        await rawreact.member.remove_roles(notifyrole, reason="Removing user from notify list")
+        # If we have the Member instance, we're great, use it. We'd need the Members intent to have it though.
+        if rawreact.member:
+            await rawreact.member.remove_roles(notifyrole, reason="Removing user from notify list")
+        else:
+            # Since we don't have the Member instance call into discord.py's http client to send the request to remove
+            # the role. Kinda hacky since you're not supposed to be doing that and discord.py changes could break this.
+            req = client.http.remove_role
+            await req(guild.id, rawreact.user_id, notifyrole.id, reason="Removing user from notify list")
     return
 
 
@@ -1266,7 +1320,7 @@ async def on_message(message):
                 await message.channel.send(msg)
 
 
-# Used when joining a server. Might want something for this.
+# Used when joining a server. Might want something for this. Possibly a good time to setup mydata for contexts
 # @client.event
 # async def on_guild_join(server) :
 #    pass
@@ -1418,7 +1472,7 @@ def savetemps():
 def loadtemps():
     """Loads saved temp data into their modules via their loaddata function"""
     for name, context in contdict.items():  # Iterate over all our contexts
-        data = False  # Clear data
+        data = None  # Clear data
         dname = name + ".dbm"  # Name is the context name, plus .dbm
         try:
             # print("Loading",dname)
@@ -1427,8 +1481,8 @@ def loadtemps():
                 data = pickle.load(g)
                 # print("Found",dname, repr(data))
         except FileNotFoundError:
-            continue  # No file, so we can move to the next one
-        except Exception as e:
+            continue  # No file just means nothing was saved, so we can move to the next one. This is expected often.
+        except Exception as e:  # An actual error is not expected, log it for debugging.
             print("Error loading data for", name, repr(e))
         try:
             if data:  # Assuming unpickling worked, send it to the context
