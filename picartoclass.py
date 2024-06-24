@@ -33,6 +33,8 @@ def getstream(recordid):
         return False
 
 
+# TODO May want to make this replace Gaming with Private if Private is enabled. Happens rarely but useful if it does.
+#  'private' was the key for this, is it still?
 class PicartoRecord(basecontext.StreamRecord):
 
     __slots__ = []
@@ -50,6 +52,7 @@ class PicartoRecord(basecontext.StreamRecord):
     def __init__(self, recdict, detailed=False):
         super().__init__(recdict, detailed)
         self.preview = recdict['thumbnails']['web']
+        self.avatar = recdict['avatar']  # This is now provided by the API always, which is good as it's not static
         if detailed:
             if recdict['multistream']:
                 self.multistream = [basecontext.MultiClass(x['adult'], x['name'], x['user_id'])
@@ -58,13 +61,13 @@ class PicartoRecord(basecontext.StreamRecord):
             else:
                 self.multistream = []
             self.online = recdict['online']
-            self.time = datetime.datetime.strptime(''.join(recdict['last_live'].rsplit(':', 1)), '%Y-%m-%dT%H:%M:%S%z')
-            self.avatar = recdict['avatar']  # We COULD make this ourself same as below, but easier to just grab it.
+            # TODO Sometimes time is None, presumably if they have never streamed. This fails here.
+            self.time = datetime.datetime.strptime(''.join(recdict['last_live']), '%Y-%m-%d %H:%M:%S')\
+                .replace(tzinfo=datetime.timezone.utc)
             self.viewers_total = recdict['viewers_total']
         else:
             # Non detailed records omit the time and avatar URLs, but we can make those easily enough.
             self.time = datetime.datetime.now(datetime.timezone.utc)
-            self.avatar = "https://picarto.tv/user_data/usrimg/" + recdict['name'].lower() + "/dsdefault.jpg "
             self.multistream = recdict['multistream']
             self.online = True
 
@@ -112,8 +115,8 @@ class PicartoRecord(basecontext.StreamRecord):
 class PicartoContext(basecontext.APIContext):
     defaultname = "picarto"  # This is used to name this context and is the command to call it. Must be unique.
     streamurl = "https://picarto.tv/{0}"  # URL for going to watch the stream
-    apiurl = "https://api.picarto.tv/v1/online?adult=true&gaming=true"  # URL to call to find online streams
-    channelurl = "https://api.picarto.tv/v1/channel/name/{0}"  # URL to call to get information on a single stream
+    apiurl = "https://api.picarto.tv/api/v1/online?adult=true&gaming=true"  # URL to call to find online streams
+    channelurl = "https://api.picarto.tv/api/v1/channel/name/{0}"  # URL to call to get information on a single stream
     recordclass = PicartoRecord
 
     def __init__(self, instname=None):
