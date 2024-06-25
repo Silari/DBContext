@@ -1088,7 +1088,8 @@ class APIContext:
                 # Simple would not have an old embed to use.
                 if len(oldmess.embeds) > 0:
                     # We only ever make one embed in a message, so use the first one.
-                    oldmess.embeds[0].set_image(url=discord.Embed.Empty)  # Clears the image if present
+                    # TODO Check if this works. Should remove the image. Was url=discord.embed.none
+                    oldmess.embeds[0].set_image(url=None)  # Clears the image if present
                     if record:  # If we have the record, this is an online edit so we can update the time.
                         oldmess.embeds[0].title = await record.streammsg(None, offset=True)
                     else:

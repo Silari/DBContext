@@ -1,7 +1,3 @@
-# discord bot with module based functionality.
-# based on discord.py:
-discordversion = '1.7.1'
-
 # DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
 #  Maybe via 'if client.user' - will be None if not logged in?
@@ -58,7 +54,11 @@ import twitchclass
 # This holds the needed API keys. You may want to use other methods for storing these.
 import apitoken
 if False:
-    import basecontext  # Not used by needed for typing
+    import basecontext  # Not used but needed for typing
+
+# discord bot with module based functionality.
+# based on discord.py:
+discordversion = '2.4.0'
 
 # Ensure we're using the expected version of discord.py. Not spending 2 hours troubleshooting AGAIN cause of that.
 if discord.__version__ != discordversion:
@@ -103,8 +103,11 @@ Fixed help still showing 'listen' command - was changed to 'channel'.
 Unknown commands once again prompt a message from the bot instead of being silently ignored.
 '''
 
+taskmods = []
+tasks = []
 myloop = asyncio.get_event_loop()
-client = discord.Client(loop=myloop, chunk_guilds_at_startup=False, max_messages=None)
+intents = discord.Intents.default()
+intents.message_content = True
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
@@ -127,9 +130,6 @@ managerolename = "StreamManage"
 notifyrolename = "StreamNotify"
 
 calledstop = False  # Did we intentionally stop the bot?
-
-taskmods = []
-tasks = []
 
 # Keep a dict of Contexts
 # Contexts
@@ -244,6 +244,20 @@ class LimitedClient:
             raise ValueError("cacheremove requires either a Message instance or a message ID!")
         return self.messagecache.pop(messageid, None)
 
+
+class DB_Client(discord.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    async def setup_hook(self) -> None:
+        self.loop.create_task(savetask())
+        for modname in taskmods:
+            # print("Starting task for:",modname.name)
+            # This starts the modules updatewrapper and passes the connection to it.
+            self.loop.create_task(modname.updatewrapper(self.myconn))
+
+
+client = DB_Client(loop=myloop, chunk_guilds_at_startup=False, max_messages=None, intents=intents)
 
 fakeclient = LimitedClient(client)
 
@@ -696,13 +710,14 @@ async def managehandler(command, message):
         managerole = await getuserrole(message.guild)
         if managerole:
             if message.guild.me.top_role.position < managerole.position:
+                # TODO Can I get the name of the bot role for this to explicitly say THAT role needs to be higher?
                 msg += "\n**Bot does not** have permission to add/remove " + managerole.name + " due to role position."
-                msg += " Please ensure the " + managerole.name + " role is below the bots role."
+                msg += " Please ensure the " + managerole.name + " role is below the bots role. "
         notifyrole = await getnotifyrole(message.guild)
         if notifyrole:
             if message.guild.me.top_role.position < notifyrole.position:
                 msg += "\n**Bot does not** have permission to add/remove " + notifyrole.name + " due to role position."
-                msg += " Please ensure the " + notifyrole.name + " role is below the bots role."
+                msg += " Please ensure the " + notifyrole.name + " role is below the bots role. "
         if not myperms.mention_everyone:
             msg += "\nMissing 'Mention Everyone' perm. This permission is needed for the announcement notification " \
                    "feature. "
@@ -1404,6 +1419,7 @@ async def savecontexts():
     # trouble to try and track that than to just let it go.
     # A simpler method may be to hash the buffer and compare that, then save if different?
     # Pickle-ing the exact same data can load to different results, so that doesn't work.
+    # print(datetime.datetime.now()) # debug for when savecontexts wasn't being called.
     try:
         # Copy the current contexts into a new dictionary
         contdata = copy.deepcopy(contexts)
@@ -1538,15 +1554,10 @@ async def startbot():
     """Handles starting the bot, making the session, and starting tasks."""
     loadtemps()  # Load any saved temporary data into modules that have it
     myconn = await makesession()  # The shared aiohttp clientsession
-    # Saves our context data periodically
-    tasks.append(client.loop.create_task(savetask()))
     # Start our context modules' updatewrapper task, if they had one when adding.
-    for modname in taskmods:
-        # print("Starting task for:",modname.name)
-        # This starts the modules updatewrapper and passes the connection to it.
-        tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
     try:
         # Starts the discord.py client with our discord token.
+        client.myconn = myconn
         await client.start(token)
     # On various kinds of errors, close our background tasks, the bot, and the loop
     except SystemExit:
@@ -1612,63 +1623,6 @@ def startupwrapper():
             # Log that the quit was requested.
             print("Called quit")
 
-
-# This section is needed for Python 3.7 to 3.7.3 only.
-import ssl
-import sys
-
-SSL_PROTOCOLS = (asyncio.sslproto.SSLProtocol,)
-
-
-def ignore_aiohttp_ssl_error(loop):
-    """Ignore aiohttp #3535 / cpython #13548 issue with SSL data after close
-
-    There is an issue in Python 3.7 up to 3.7.3 that over-reports a
-    ssl.SSLError fatal error (ssl.SSLError: [SSL: KRB5_S_INIT] application data
-    after close notify (_ssl.c:2609)) after we are already done with the
-    connection. See GitHub issues aio-libs/aiohttp#3535 and
-    python/cpython#13548.
-
-    Given a loop, this sets up an exception handler that ignores this specific
-    exception, but passes everything else on to the previous exception handler
-    this one replaces.
-
-    Checks for fixed Python versions, disabling itself when running on 3.7.4+
-    or 3.8.
-
-    """
-    if sys.version_info >= (3, 7, 4):
-        return
-
-    orig_handler = loop.get_exception_handler()
-
-    def ignore_ssl_error(lop, context):
-        if context.get("message") in {
-            "SSL error in data received",
-            "Fatal error on transport",
-        }:
-            # validate we have the right exception, transport and protocol
-            exception = context.get('exception')
-            protocol = context.get('protocol')
-            if (
-                    isinstance(exception, ssl.SSLError)
-                    and exception.reason == 'KRB5_S_INIT'
-                    and isinstance(protocol, SSL_PROTOCOLS)
-            ):
-                # print("Ignored bad exception")
-                if lop.get_debug():
-                    asyncio.log.logger.debug('Ignoring asyncio SSL KRB5_S_INIT error')
-                return
-        if orig_handler is not None:
-            orig_handler(lop, context)
-        else:
-            lop.default_exception_handler(context)
-
-    loop.set_exception_handler(ignore_ssl_error)
-
-
-ignore_aiohttp_ssl_error(myloop)
-# END 3.7 to 3.7.3 only section
 
 # If the module was run, call our startup wrapper
 if __name__ == "__main__":
