@@ -1260,20 +1260,13 @@ class APIContext:
                     # At this point we've passed enough tests that the message
                     # is going to be sent
                     msgtype = await self.getoption(server, "Type", recordid)
+                    # TODO Have this grab the notifyrole option role if set.
                     notifyrole: discord.Role = await self.getoption(server, "Notify")
                     # print("announce notify",repr(notifyrole))
                     notemsg = ""
                     # revert = False
                     # If server is using notifications, mention it
                     if notifyrole:
-                        # The bug that caused this seems to have been fixed.
-                        # # If the role isn't mentionable, make it so to avoid a bug
-                        # if not notifyrole.mentionable:
-                        #     try:
-                        #         await notifyrole.edit(mentionable=True)
-                        #         revert = True
-                        #     except discord.Forbidden:
-                        #         pass
                         notemsg = notifyrole.mention + " "
                     # print("msgtype",msgtype)
                     if msgtype == "simple":  # simple type, no embed
