@@ -1260,7 +1260,6 @@ class APIContext:
                     # At this point we've passed enough tests that the message
                     # is going to be sent
                     msgtype = await self.getoption(server, "Type", recordid)
-                    # TODO Have this grab the notifyrole option role if set.
                     notifyrole: discord.Role = await self.getoption(server, "Notify")
                     # print("announce notify",repr(notifyrole))
                     notemsg = ""
