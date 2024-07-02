@@ -152,7 +152,7 @@ try:
         contexts = pickle.load(f)
 except FileNotFoundError:
     pass
-print("Initial Contexts:", contexts)
+#print("Initial Contexts:", contexts)
 newcont = {}
 contfuncs = {}
 
@@ -322,7 +322,7 @@ async def getglobal(guildid, option):
         try:
             # print('getglobal2',guildid,option)
             guild = client.get_guild(guildid)
-            print(guild.get_role(mydata["notifymsg"][mydata['notifyserver'][guildid]]))  # get role via the saved id
+            # print(guild.get_role(mydata["notifymsg"][mydata['notifyserver'][guildid]]))  # get role via the saved id
             return guild.get_role(mydata["notifymsg"][mydata["notifyserver"][guildid]])
         except KeyError:
             # print('getglobal',repr(e))
@@ -826,7 +826,7 @@ async def managehandler(command, message):
             if len(message.role_mentions) > 0:
                 # User mentioned a role, set it to be the one mentioned.
                 roleid = message.role_mentions[0].id
-                print("Mentioned: ", roleid)
+                # print("Mentioned: ", roleid)
             else:  # They provided the name (or nothing). We need to find it in the guild.
                 # @everyone and @here don't work right, so we don't allow them. May fix this later.
                 if command[1] in ('@everyone', '@here'):
@@ -834,9 +834,9 @@ async def managehandler(command, message):
                                         "Please choose a different role.", mention_author=False)
                     return
                 foundrole = await getnotifyrole(message.guild, command[1])
-                print("Found Role: ", foundrole)
+                # print("Found Role: ", foundrole)
                 if foundrole:
-                    print(" Role id: ", foundrole.id)
+                    # print(" Role id: ", foundrole.id)
                     roleid = foundrole.id
         if roleid:  # The search could fail.
             # Save the role id in our data area under the guild id
