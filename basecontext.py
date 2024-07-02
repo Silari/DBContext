@@ -1266,14 +1266,6 @@ class APIContext:
                     # revert = False
                     # If server is using notifications, mention it
                     if notifyrole:
-                        # The bug that caused this seems to have been fixed.
-                        # # If the role isn't mentionable, make it so to avoid a bug
-                        # if not notifyrole.mentionable:
-                        #     try:
-                        #         await notifyrole.edit(mentionable=True)
-                        #         revert = True
-                        #     except discord.Forbidden:
-                        #         pass
                         notemsg = notifyrole.mention + " "
                     # print("msgtype",msgtype)
                     if msgtype == "simple":  # simple type, no embed
