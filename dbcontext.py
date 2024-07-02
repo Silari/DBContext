@@ -152,7 +152,7 @@ try:
         contexts = pickle.load(f)
 except FileNotFoundError:
     pass
-#print("Initial Contexts:", contexts)
+# print("Initial Contexts:", contexts)
 newcont = {}
 contfuncs = {}
 
@@ -309,11 +309,11 @@ async def getglobal(guildid, option):
     mydata = contexts["manage"]["Data"]
     if option == 'Notify':  # Special handling for notify option
         try:
-            #print('getglobal1',guildid,option)
+            # print('getglobal1',guildid,option)
             # try to get the roleid from the server if it exists
             guild = client.get_guild(guildid)
             roleid = mydata["notifyrole"][guildid]
-            #print(roleid)
+            # print(roleid)
             if roleid:
                 # Use the found id to get the actual role.
                 return guild.get_role(roleid)
@@ -607,6 +607,7 @@ async def getnotifyrole(guild, name=notifyrolename):
     """Find the notify role in the server
 
     :type guild: discord.Guild
+    :type name: str
     :rtype: None | discord.Role
     :param guild: Guild instance to find the role in.
     :param name: Name of the role to find. Defaults to notifyrolename.
@@ -833,7 +834,7 @@ async def managehandler(command, message):
                     await message.reply("You can not notify the everyone or here roles to Discord limitations. "
                                         "Please choose a different role.", mention_author=False)
                     return
-                foundrole = await getnotifyrole(message.guild, command[1])
+                foundrole = await getnotifyrole(message.guild, " ".join(command[1:]))
                 # print("Found Role: ", foundrole)
                 if foundrole:
                     # print(" Role id: ", foundrole.id)
