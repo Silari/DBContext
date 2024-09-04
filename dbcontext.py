@@ -1,4 +1,4 @@
-# DON'T UPDATE APIS IF BOT ISN'T CONNECTED
+# DONT UPDATE APIS IF BOT ISNT CONNECTED
 #  No way to find this out?
 #  Maybe via 'if client.user' - will be None if not logged in?
 
