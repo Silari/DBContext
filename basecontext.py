@@ -12,8 +12,8 @@
 # for easier management of multiple threads. Most functions used in this should
 # also be coroutines, especially any potentially blocking functions, so that the
 # bot can still be responsive to other requests.
-from typing import Dict, AsyncGenerator, Optional
-
+from typing import Dict, AsyncGenerator, Optional, List
+from enum import Enum  # Used for slashcommands.
 import discord  # Access to potentially needed classes/methods, Embed
 import aiohttp  # Should be used for any HTTP requests, NOT urllib!
 import json  # Useful for interpreting json from API requests.
@@ -22,6 +22,9 @@ import traceback  # For exception finding.
 import datetime  # For stream duration calculation.
 import time  # Used to add a time stamp to images to avoid caches.
 
+msgdelay = 60
+
+# noinspection PyUnreachableCode
 if False:  # We don't actually use this, but it makes it available for typing
     from dbcontext import LimitedClient
 
@@ -276,6 +279,65 @@ class StreamRecord:
         raise NotImplementedError
 
 
+class SendToChannel(discord.ui.View):
+    """View that creates a button the user can click to send the information in the message to the announcement
+     channel. Since messages are ephemeral they may want it there so the info is available later."""
+
+    def __init__(self, mycontext: "APIContext", message: str, embed: discord.Embed):
+        """Stores the context, message, and embed of the interaction it belongs to for later usage.
+
+        :param mycontext: Context which created this interaction.
+        :param message: The message.content string of the interaction.
+        :param embed: The message.embed Embed of the interaction, if any, or None.
+        """
+        super().__init__()
+        self.mycontext = mycontext
+        self.message = message
+        self.embed = embed
+
+    @discord.ui.button(label="Send this message to announcement channel", style=discord.ButtonStyle.primary)
+    async def sendmessage(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = await self.mycontext.resolvechannel(interaction.guild_id)
+        if not channel:  # No channel was set, so we have nowhere to put the message.
+            button.label = "No channel is set for this server!"
+            await interaction.response.edit_message(view=self)
+            return
+        await channel.send(self.message, embed=self.embed)
+        button.label = "Message has been sent!"
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
+
+
+class HandlerEnums:
+    """Holds enums used by slash commands to limit inputs.
+
+    """
+
+    class AnnounceType(Enum):
+        default = 0
+        noprev = 1
+        simple = 2
+        clear = 3
+
+    class EditType(Enum):
+        edit = 0
+        delete = 1
+        static = 2
+
+    class AdultOption(Enum):
+        showadult = 0
+        hideadult = 1
+        noadult = 2
+
+    class NotifyOption(Enum):
+        notify = 0
+        notifyoff = 1
+
+    class HelpOptions(Enum):
+        option = 0
+        streamoption = 1
+
+
 parsed: Dict[str, StreamRecord] = {}
 
 
@@ -330,6 +392,10 @@ class APIContext:
     def streamurl(self):
         """URL for going to watch the stream"""
         raise NotImplementedError("apiurl must be overridden in the subclass")
+
+    @property
+    def description(self):
+        return "Commands for the " + self.name + " context. Use the help command for details on any command."
 
     def __init__(self, instname=None):
         # Holds a string with our instance name. The unique identifier for an instance of APIContext or it's subclasses.
@@ -433,7 +499,7 @@ class APIContext:
         if len(data) == 0:
             # If no streams are online, we insert a fake record so don't have an empty return.
             # This is mostly for Twitch now, as it's unlikely no one would be online for the other two.
-            data["dbcontext"] = True
+            data["dbcontext"] = StreamRecord({})
         if data:  # This should always be True now as we added a record if there weren't any.
             curtime = datetime.datetime.now(datetime.timezone.utc)
             return curtime, data
@@ -548,8 +614,6 @@ class APIContext:
         :param message: The Message instance that we are removing from SavedMSG and the cache.
         :param messageid: The snowflake for the announcement message.
         """
-        # TODO Possibly allow this to work with JUST the msgid, in case we don't know the guild or record.
-        #  Don't know of any occassions but easy enough to traverse savedmsg for it.
         oldid = None
         try:
             oldid = self.mydata['SavedMSG'][guildid].pop(recordid, None)
@@ -561,10 +625,9 @@ class APIContext:
             await self.client.cacheremove(message=message, messageid=messageid)
 
     async def resolvechannel(self, guildid, recordid=None, channelid=None):
-        """Get the channel associated with this guild and recordid, or get the TextChannel instance for the given
-         channelid.
+        """Get the channel associated with this guild and recordid, or the TextChannel instance for the given channelid.
 
-        :rtype: discord.TextChannel | None
+        :rtype: discord.TextChannel
         :type guildid: int
         :type recordid: str
         :type channelid: int
@@ -620,7 +683,7 @@ class APIContext:
         :type guildid: int
         :type option: str
         :type recordid: str
-        :rtype: None | str | bool | discord.Role
+        :rtype: None | str | bool | "discord.Role"
         :param guildid: Integer representing the snowflake of the Guild we're retrieving this option for.
         :param option:  String with the name of the option to retrieve.
         :param recordid: String with the name of the record to check for a stream override for the option.
@@ -754,7 +817,7 @@ class APIContext:
         :param rectime: A full stream record as returned by the API
         :return: The longer duration between when the snowflake was created and the time contained in the record.
         """
-        dur = datetime.datetime.utcnow() - discord.utils.snowflake_time(snowflake)
+        dur = datetime.datetime.now(datetime.timezone.utc) - discord.utils.snowflake_time(snowflake)
         return max(rectime, dur)
 
     async def makemsg(self, record):
@@ -1018,8 +1081,6 @@ class APIContext:
             for cur in curstreams:
                 # Get the current record from our dict.
                 record = self.parsed[cur]
-                # TODO Change this to only update if stream is being watched? I could keep a separate timer that updates
-                #  the unwatched streams every X minutes? Only super useful for Picarto, 0 use for twitch.
                 # Update the record with the new information.
                 record.update(newparsed[cur])
                 if cur in mydata['AnnounceDict']:  # Someone is watching this stream
@@ -1088,7 +1149,6 @@ class APIContext:
                 # Simple would not have an old embed to use.
                 if len(oldmess.embeds) > 0:
                     # We only ever make one embed in a message, so use the first one.
-                    # TODO Check if this works. Should remove the image. Was url=discord.embed.none
                     oldmess.embeds[0].set_image(url=None)  # Clears the image if present
                     if record:  # If we have the record, this is an online edit so we can update the time.
                         oldmess.embeds[0].title = await record.streammsg(None, offset=True)
@@ -1100,7 +1160,7 @@ class APIContext:
                     newembed = oldmess.embeds[0]  # discord.Embed.from_dict(newembed)
                 newmsg = recordid + " is no longer online. Better luck next time!"
                 try:
-                    await oldmess.edit(content=newmsg, embed=newembed, suppress=False)
+                    await oldmess.edit(content=newmsg, embed=newembed, suppress=False,view=None)
                 except (discord.NotFound, discord.HTTPException, discord.Forbidden):
                     # print("Caught exception in edit", repr(e))
                     # traceback.print_tb(e.__traceback__)
@@ -1172,10 +1232,9 @@ class APIContext:
                     except (discord.HTTPException, discord.Forbidden):
                         pass  # If it failed there's not much we can do about it. Either it's already gone or no access.
                 else:
-                    # TODO: Maybe make this remove savedMSG. We're not there anymore so we can't do anything with it.
-                    #  This isn't likely a temporary thing. Then again, I THINK it'll get removed anyway when it goes
-                    #  offline. If so, then this is fine - in the unlikely event it's temporary it'll work again, if
-                    #  it's permanent then it'll get removed in removemsg.
+                    # Not much to do about not being in the server anymore. This isn't likely a temporary thing, and
+                    # it'll be removed when the stream goes offline anyway. In the unlikely event removal is temporary
+                    # it'll work again.
                     continue
             if not oldmess:  # We still didn't find the message, may be deleted.
                 continue
@@ -1264,26 +1323,23 @@ class APIContext:
                     notifyrole: discord.Role = await self.getoption(server, "Notify")
                     # print("announce notify",repr(notifyrole))
                     notemsg = ""
-                    # revert = False
+                    myview = False
                     # If server is using notifications, mention it
                     if notifyrole:
                         notemsg = notifyrole.mention + " "
+                        # Checks if server is managing notification role, if so we need to add a view.
+                        if self.client.NotifyRoleView.needsview(server):
+                            myview = self.client.NotifyRoleView()
                     # print("msgtype",msgtype)
                     if msgtype == "simple":  # simple type, no embed
                         sentmsg = await channel.send(notemsg + msg)
                     elif ((msgtype == "noprev")  # Embed without preview type
                           # default type, but adult stream and hide adult is set
                           or (record.adult and (adult == 'hideadult'))):
-                        sentmsg = await channel.send(notemsg + msg, embed=noprev)
+                        sentmsg = await channel.send(notemsg + msg, embed=noprev, view=myview)
                     else:
                         # Default stream type, full embed with preview
-                        sentmsg = await channel.send(notemsg + msg, embed=myembed)
-                    # Again, no longer needed as bug was fixed.
-                    # if revert:  # We need to revert the mentionable change - we MUST have a notifyrole if this is true
-                    #     try:
-                    #         await notifyrole.edit(mentionable=False)
-                    #     except discord.Forbidden:
-                    #         pass
+                        sentmsg = await channel.send(notemsg + msg, embed=myembed, view=myview)
             except KeyError as e:
                 # We should've prevented any of these, so note that it happened.
                 # Note there aren't even any key indices left in the above code
@@ -1297,60 +1353,101 @@ class APIContext:
             if sentmsg:
                 await self.setmsgid(server, recordid, sentmsg)
 
-    async def detailannounce(self, recordid, oneserv=None):
+    async def detailannounce(self, recordid, oneserv, dontsend=True):
         """Provides a more detailed announcement of a stream for the detail command
 
         :type recordid: str
         :type oneserv: int
+        :type dontsend: bool
         :param recordid: A stream name to create a detailed announcement for.
         :param oneserv: Snowflake for the server in which to give this announcement.
+        :param dontsend: Don't check channel is set or send anything, return the message and embed, if any, instead.
         """
-        # We should only call this with a specific server to respond to
+        # We should only call this with a specific server to respond to. This is mostly here to prevent an error below.
         if not oneserv:
             return
-        # Check we have a channel FIRST, to avoid an unneeded API call.
-        channel = await self.resolvechannel(oneserv, recordid)
-        if not channel:  # No channel was set, so we have nowhere to put the message.
-            raise ChannelNotSet()
-        # If we already have this record and it's a detailed record, use it instead.
+        channel: discord.TextChannel = None
+        if not dontsend:  # If we're sending the message, check we have a channel FIRST, to avoid an unneeded API call.
+            channel = await self.resolvechannel(oneserv, recordid)
+            if not channel:  # No channel was set, so we have nowhere to put the message. This is an error.
+                raise ChannelNotSet()
+        # If we already have this record and it's a detailed record, use it instead of making an API call.
         if recordid in self.parsed and self.parsed[recordid].detailed:
             record = self.parsed[recordid]
         else:
             record = await self.agetstream(recordid)
         # record is only none if the timeout was reached.
+        msg = ""
+        # Check for possible errors - timeout getting API, error getting API, or a stream not found error.
         if record is None:
             msg = "Timeout reached attempting API call; it is not responding. Please try again later."
             if not self.lastupdate:  # Note if the API update failed
                 msg += "\n**Last attempt to update API also failed. API may be down.**"
-            await channel.send(msg)
-            return
-        # Non-timeout error happened.
-        if record is False:
-            try:
-                msg = "Sorry, I failed to load information about that channel due to an error. Please wait and try " \
-                      "again later. "
-                if not self.lastupdate:  # Note if the API update failed. Probably caught by the timeout error but JIC
-                    msg += "\n**Last attempt to update API failed. API may be down.**"
-                await channel.send(msg)
-            except KeyError:  # Nothing left to have this but keep it for now.
-                pass
-            return  # Only announce on that server, then stop.
-        if record == 0:  # API call returned a Not Found response
+        # Non-timeout error happened. This check needs to come after is None.
+        elif record is False:
+            msg = "Sorry, I failed to load information about that channel due to an error. Please wait and try " \
+                  "again later. "
+            if not self.lastupdate:  # Note if the API update failed. Probably caught by the timeout error but JIC
+                msg += "\n**Last attempt to update API failed. API may be down.**"
+        elif record == 0:  # API call returned a Not Found response
             msg = "The API found no users by the name. Check the name and spelling for errors and try again."
-            # API being down wouldn't be the cause of this, so we're commenting these out. May reinstate them later.
-            # if not self.lastupdate :  # Note if the API update failed
-            #    msg += "\n**Last attempt to update API failed. API may be down.**"
-            await channel.send(msg)
-            return
+        if msg:  # Some error happened that we need to report to the user.
+            if dontsend:
+                return msg, None
+            else:
+                await channel.send(msg)
+                return
         showprev = True
         if record.adult and (not (await self.getoption(oneserv, 'Adult', recordid) == 'showadult')):
             # We need to not include the preview from the embed.
             showprev = False
-        # myembed = await self.makedetailembed(record, showprev=showprev)
         myembed = await record.detailembed(showprev)
         if myembed:  # Make sure we got something, rather than None/False
             # If the server isn't showadult, AND this is an adult stream
-            await channel.send(embed=myembed)
+            if dontsend:
+                return None, myembed
+            else:
+                await channel.send(embed=myembed)
+                return
+        else:
+            if dontsend:
+                return "Unknown error getting embed.", None
+            else:
+                await channel.send("Unknown error getting embed.")
+                return
+
+    @property
+    def commands(self):
+        """Returns a dict of the available commands, each a dict with the description and the callback."""
+        return {"help": {"description": "Provides a list of subcommands or details on a given subcommand.",
+                         "callback": self.slashhelp},
+                "channel": {"description": "Starts announcing new streams in the given channel.",
+                            "callback": self.slashchannel},
+                "stop": {"description": "Stops announcing streams. Edits to existing announcements will still occur.",
+                         "callback": self.slashstop},
+                "resume": {"description": "Resumes announcing streams after using the 'stop' command.",
+                           "callback": self.slashresume},
+                "option": {"description": "Sets one of the available options. Use '/" + self.name +
+                                          " help option' for details on options.",
+                           "callback": self.slashoption},
+                "streamoption": {"description": "Overrides the given option for the specified stream. If not provided, "
+                                                "lists any currently set.",
+                                 "callback": self.slashstreamoption},
+                "add": {"description": "Add new streams to announce, seperated by a space. Streams past the "
+                                       "limit of " + str(self.maxlistens) + " will be ignored.",
+                        "callback": self.slashadd},
+                "announce": {"description": "Announces any online streams that were not previously announced. This "
+                                            "ignores the stop command.",
+                             "callback": self.slashannounce},
+                "remove": {"description": "Stops one or more streams from being announced, seperated by a space. Case"
+                                          " sensitive.",
+                           "callback": self.slashremove},
+                "detail": {"description": "Provides details on the given stream.",
+                           "callback": self.slashdetail},
+                "list": {"description": "Lists current announcement channel and all watched streams. Options are "
+                                        "included when relevant.",
+                         "callback": self.slashlist}
+                }
 
     async def handler(self, command, message):
         """Handler function which is called by getcontext when invoked by a user. Parses the command and responds as
@@ -1366,32 +1463,11 @@ class APIContext:
         # was specifically given. Useful to tell users how to work your context.
         mydata = self.mydata  # Ease of use and speed reasons
         if len(command) > 0 and command[0] != 'help':
-            if command[0] == 'channel':
-                # This sets the channel to perform announcements/bot responses to.
+            if command[0] == 'channel':  # Moved to function
+                channeltoset = None
                 if message.channel_mentions:
-                    # Ensure the mentioned channel is in this guild, or else we don't accept it.
-                    if message.channel_mentions[0].guild != message.guild:
-                        await message.reply("I could not find " + message.channel_mentions[0].name +
-                                            " in this server.", mention_author=False)
-                        return
-                    # Set the mentioned channel as the announcement channel
-                    channelid = message.channel_mentions[0].id
-                else:
-                    # Set the channel the message was sent in as the announcement channel
-                    channelid = message.channel.id
-                if not (message.guild.id in mydata["Servers"]):
-                    mydata["Servers"][message.guild.id] = {}  # Add data storage for server
-                try:  # Try to delete the Stop override if it exists
-                    del mydata['COver'][message.guild.id]['Stop']
-                except KeyError:
-                    pass  # If it doesn't, ignore it.
-                mydata["Servers"][message.guild.id]["AnnounceChannel"] = channelid
-                channel = await self.resolvechannel(message.guild.id, channelid=channelid)
-                msg = "Ok, I will now use " + channel.mention + " for announcements."
-                # Do we have permission to talk in that channel?
-                if not channel.permissions_for(channel.guild.me).send_messages:
-                    msg += "\nI **do not** have permission to send messages in that channel! Announcements will fail " \
-                           "until permission is granted. "
+                    channeltoset = message.channel_mentions[0]
+                msg = await self.channel(message.guild.id, message.channel.id, channeltoset=channeltoset)
                 await message.reply(msg, mention_author=False)
                 return
             elif command[0] == 'stop':
@@ -1419,22 +1495,37 @@ class APIContext:
                 await message.reply(msg, mention_author=False)
                 return
             elif command[0] == 'option':  # Moved to function
-                await self.option(command, message)
+                if len(command) == 1:
+                    msg = "You need to provide one or more options to set!"
+                else:
+                    msg = await self.option(command[1:], message.guild.id)
+                await message.reply(msg, mention_author=False)
                 return
             elif command[0] == 'streamoption':  # Moved to function
-                await self.streamoption(command, message)
+                if len(command) == 1:
+                    msg = "You need to provide the stream name to view/set options for!"
+                else:
+                    msg = await self.streamoption(command[1], command[2:], message.guild, message.guild.id, None)
+                await message.reply(msg, mention_author=False)
                 return
             elif command[0] == 'list':  # Moved to function
-                await self.list(command, message)
+                msg = await self.list(message.guild.id)
+                await message.reply(msg, mention_author=False)
                 return
             elif command[0] == 'announce':  # Moved to function
-                await self.announceall(command, message)
+                msg = await self.announceall(message.guild.id)
+                await message.reply(msg, mention_author=False)
                 return
-            elif command[0] == 'add':  # Moved to function
-                await self.add(command, message)
+            elif command[0] == 'add':
+                channeltoset = None
+                if message.channel_mentions:  # Channel mention, so make an override
+                    channeltoset = message.channel_mentions[0]
+                msg = await self.add(command[1:], message.guild.id, channeltoset=channeltoset)
+                await message.reply(msg, mention_author=False)
                 return
-            elif command[0] == 'remove':  # Moved to function
-                await self.remove(command, message)
+            elif command[0] == 'remove':
+                msg = await self.remove(command[1:], message.guild.id)
+                await message.reply(msg, mention_author=False)
                 return
             elif command[0] == 'detail':
                 msg = ""
@@ -1447,7 +1538,7 @@ class APIContext:
                     await message.reply(msg, mention_author=False)
                 else:
                     try:
-                        await self.detailannounce(command[1], message.guild.id)
+                        await self.detailannounce(command[1], message.guild.id, dontsend=False)
                     except ChannelNotSet:
                         await message.reply(
                             "You must specify an announcement channel via the channel command before calling "
@@ -1462,6 +1553,7 @@ class APIContext:
         else:  # No extra command given, or command was help. Unknown command is handled above now.
             # This is your help area, which should give your users an idea how to use
             # your context.
+            msg = ''
             if len(command) > 1:
                 # This is for help with a specific command in this context
                 if command[1] == 'option':
@@ -1484,15 +1576,14 @@ class APIContext:
                         msg += "\nThe adult options CAN NOT 100% shield your users from adult content. Forgetful " \
                                "streamers, API errors, bugs in the module, and old adult previews cached by the " \
                                "streaming site/discord/etc. may allow adult content through."
-                    await message.reply(msg, mention_author=False)
             # The general help goes here - it should list commands or some site that
             # has a list of them
             else:
                 msg = "The following commands are available for " + self.name + ":"
-                msg += "\nchannel: starts announcing new streams in the channel it is said. Optionally, mention a " \
+                msg += "\nchannel: Starts announcing new streams in the channel it is said. Optionally, mention a " \
                        "channel and that channel will be used instead."
-                msg += "\nstop: stops announcing streams, edits to existing announcements will still occur."
-                msg += "\nresume: resumes announcing streams."
+                msg += "\nstop: Stops announcing streams. Edits to existing announcements will still occur."
+                msg += "\nresume: Resumes announcing streams."
                 msg += "\noption <option(s)>: sets one or more space separated options. See help option for details " \
                        "on available options."
                 msg += "\nstreamoption <name> <option(s)>: overrides one or more space separated options for the " \
@@ -1512,39 +1603,290 @@ class APIContext:
                     msg += "\n**The last attempt to update the API failed!** The API may be down. This will cause " \
                            "certain commands to not work properly. Announcements will resume normally once the API " \
                            "is connectable."
-                await message.reply(msg, mention_author=False)
+            await message.reply(msg, mention_author=False)
             return
 
-    async def add(self, command, message):
-        """Adds streams to the list of watched streams for a guild.
+    async def slashhelp(self, interaction: discord.Interaction, command: Optional[HandlerEnums.HelpOptions]):
+        """Shows help for this context.
 
-        :param command: Command list passed from handler
-        :param message: The discord.Message instance that invoked the handler.
+        :param interaction: The discord Interaction that called this.
+        :param command: Command to get detailed help for.
+        :return:
+        """
+        if command:  # If user selected a command to learn about, find the command name from the Enum.
+            command = str(command).split('.')[1]
+        if command == 'option':
+            msg = "The following options are available:"
+            msg += "\nAnnouncement Type options:"
+            msg += "\ndefault: sets announcements messages to the default embedded style with preview."
+            msg += "\nnoprev: Use default embed style announcement but remove the stream preview image."
+            msg += "\nsimple: Use a non-embedded announcement message with just a link to the stream."
+            msg += "\nclear: This resets ALL options to the default setting."
+            msg += "\nAnnouncement Editing options:"
+            msg += "\ndelete: Same as edit, except announcement is deleted when the stream goes offline."
+            msg += "\nedit: default option. Viewers and other fields are updated periodically. Message is " \
+                   "changed when stream is offline."
+            msg += "\nstatic: messages are not edited or deleted ever."
+            msg += "\nnotify, notifyoff: Allows or forces off, respectively, notification pings."
+            msg += "\n    Note that notifications WILL NOT be sent unless they are enabled in the manage context!"
+            if self.name != 'twitch':  # Twitch doesn't have adult settings, so ignore.
+                msg += "\nAdult stream options:"
+                msg += "\nshowadult: default option. Adult streams are shown normally."
+                msg += "\nhideadult: Adult streams are announced but not previewed."
+                msg += "\nnoadult: Adult streams are not announced. Streams that are marked adult after " \
+                       "announcement will have their previews disabled."
+                msg += "\nThe adult options CAN NOT 100% shield your users from adult content. Forgetful " \
+                       "streamers, API errors, bugs in the module, and old adult previews cached by the " \
+                       "streaming site/discord/etc. may allow adult content through."
+            else:
+                msg += "\nAdult options exist but have no effect on twitch streams, which does not allow adult content."
+        elif command == 'streamoption':
+            msg = "The following options can be set per stream:"
+            msg += "\nchannel: A channel in which announcements will be sent. "
+            msg += "\nAny item from the option command - see '/" + self.name + " help option' for details on those."
+            msg += "\nnotify, notifyoff: Allows or forces off, respectively, notification pings for this stream."
+            msg += "\n    Note that notifications WILL NOT be sent unless they are enabled in the manage context!"
+        # The general help goes here - it should list commands or some site that has a list of them
+        else:
+            msg = "The following commands are available for " + self.name + ":"
+            msg += "\nchannel: Starts announcing new streams in the channel it is said. Optionally, mention a " \
+                   "channel and that channel will be used instead."
+            msg += "\nstop: Stops announcing streams. Edits to existing announcements will still occur."
+            msg += "\nresume: Resumes announcing streams."
+            msg += "\noption <option(s)>: sets one or more space separated options. See help option for details " \
+                   "on available options."
+            msg += "\nstreamoption <name> <option(s)>: overrides one or more space separated options for the " \
+                   "given stream. If no options are provided, lists any overrides currently set."
+            msg += "\nadd <names>: adds new streams to announce, seperated by a space (any trailing commas are " \
+                   "removed). Streams past the server limit of " + str(self.maxlistens) + " will be ignored."
+            msg += "\nannounce: immediately announces any online streams that were not previously announced."
+            msg += "\nremove <names>: removes multiple new streams at once, seperated by a space."
+            msg += "\ndetail <name>: Provides details on the given stream, including multi-stream participants, " \
+                   "if applicable. Please note that certain options that affect announcements, like stop and " \
+                   "noadult, are ignored. However, adult streams WILL NOT show a preview unless showadult is set. "
+            msg += "\nlist: Lists the current announcement channel and all watched streams. Certain " \
+                   "options/issues are also included when relevant."
+            msg += "\nSome commands/responses will not work unless an announcement channel is set."
+            msg += "\nPlease note that all commands, options and stream names are case sensitive!"
+            if not self.lastupdate:  # Note if the API update failed
+                msg += "\n**The last attempt to update the API failed!** The API may be down. This will cause " \
+                       "certain commands to not work properly. Announcements will resume normally once the API " \
+                       "is connectable."
+        # The delay on this should be longer since it's potentially very long.
+        # This shouldn't have the view because help doesn't change - if someone needs to see it they can /context help
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay*3)
+        return
+
+    async def slashchannel(self, interaction: discord.Interaction, channel: Optional[discord.TextChannel]):
+        """Sets the channel to show stream announcements and some commands in.
+
+
+        :param interaction: The discord Interaction that called this.
+        :param channel: The channel to set as your announcement channel. Defaults to current channel.
+        :return:
+        """
+        msg = await self.channel(interaction.guild_id, interaction.channel.id, channel)
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+
+    async def slashstop(self, interaction: discord.Interaction):
+        """Stops announcements from being made for this context on this server until resume command is called.
+
+        :param interaction: The discord Interaction that called this.
+        :return:
         """
         mydata = self.mydata
-        if not (message.guild.id in mydata["Servers"]):
+        # Stop announcing - we set an override option named Stop to true
+        if 'COver' not in mydata:  # We need to make the section
+            mydata['COver'] = {}  # New dict
+        if interaction.guild_id not in mydata['COver']:  # Make server in section
+            mydata['COver'][interaction.guild_id] = {}
+        # Set the override. Announce checks for this before announcing
+        mydata['COver'][interaction.guild_id]['Stop'] = True
+        msg = "Ok, I will stop announcing on this server."
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+        return
+
+    async def slashresume(self, interaction: discord.Interaction):
+        """Resumes announcements for this context on this server. The announcement channel is not changed.
+
+        :param interaction: The discord Interaction that called this.
+        :return:
+        """
+        mydata = self.mydata
+        # Unset the Stop override - nothing else needed.
+        try:  # Try to delete the Stop override if it exists
+            del mydata['COver'][interaction.guild_id]['Stop']
+        except KeyError:
+            pass  # If it doesn't, ignore it.
+        channel = await self.resolvechannel(interaction.guild_id)
+        if channel:
+            msg = "I will resume announcements to " + channel.mention + "."
+        else:
+            msg = "No announcement channel has been set, please set one with listen."
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+        return
+
+    async def slashoption(self, interaction: discord.Interaction, announcetype: Optional[HandlerEnums.AnnounceType],
+                          edittype: Optional[HandlerEnums.EditType], adultoption: Optional[HandlerEnums.AdultOption],
+                          notifyoption: Optional[HandlerEnums.NotifyOption]):
+        """Sets options for your server. Options should be separated by spaces. See 'help options' for details.
+
+        :param interaction: The discord Interaction that called this.
+        :param announcetype: Sets the style of announcements.
+        :param edittype: Sets whether to edit messages over time with updated stream info.
+        :param adultoption: Whether to show adult streams at all, or with no preview.
+        :param notifyoption: Overrides the global notify option, if it is enabled.
+        :return:
+        """
+        # We need to convert the enum value to the proper text, which is the name of that enum value.
+        msg = await self.option([str(announcetype).split('.')[1],
+                                 str(edittype).split('.')[1],
+                                 str(adultoption).split('.')[1],
+                                 str(notifyoption).split('.')[1]],
+                                interaction.guild_id)
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+
+    async def slashstreamoption(self, interaction: discord.Interaction,
+                                streamname: str,
+                                channel: Optional[discord.TextChannel],
+                                announcetype: Optional[HandlerEnums.AnnounceType],
+                                edittype: Optional[HandlerEnums.EditType],
+                                adultoption: Optional[HandlerEnums.AdultOption],
+                                notifyoption: Optional[HandlerEnums.NotifyOption]):
+        """Sets options on the given stream. Stream listed first followed by options, separated by spaces.
+
+        :param interaction: The discord Interaction that called this.
+        :param streamname: the stream to override options for.
+        :param channel: The channel to use for this streams announcements.
+        :param announcetype: Sets the style of announcements.
+        :param edittype: Sets whether to edit messages over time with updated stream info.
+        :param adultoption: Whether to show adult streams at all, or with no preview.
+        :param notifyoption: Overrides the global notify option, if it is enabled.
+        :return:
+        :return:
+        """
+        # We need to convert the enum value to the proper text, which is the name of that enum value.
+        msg = await self.streamoption(streamname,
+                                      [str(announcetype).split('.')[1],
+                                       str(edittype).split('.')[1],
+                                       str(adultoption).split('.')[1],
+                                       str(notifyoption).split('.')[1]],
+                                      interaction.guild,
+                                      interaction.guild_id,
+                                      channel)
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+
+    async def slashadd(self, interaction: discord.Interaction,
+                       streamlist: str,
+                       channeltoset: Optional[discord.TextChannel]):
+        """Adds streams to the watched list, so they'll be announced when they come online.
+
+        :param interaction: The discord Interaction that called this.
+        :param streamlist: List of streams, separated by spaces, to start watching on this server.
+        :param channeltoset: Announcements for new streams will be sent to this channel instead of announcement channel.
+        :return:
+        """
+        msg = await self.add(streamlist.split(), interaction.guild_id, channeltoset)
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+
+    async def slashannounce(self, interaction: discord.Interaction):
+        """Announces any watched streams currently online that were not previously announced.
+
+        :param interaction: The discord Interaction that called this.
+        :return:
+        """
+        msg = await self.announceall(interaction.guild_id)
+        # This one does not have a view to send to a channel because the announcements are always in that channel.
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay)
+
+    async def slashremove(self, interaction: discord.Interaction, streamlist: str):
+        """Removes streams from the list of watched streams for a guild.
+
+        :type interaction: discord.Interaction
+        :type streamlist: str
+        :param interaction: The discord Interaction that called this.
+        :param streamlist: A list of streams to remove from the watch list, separated by spaces.
+        """
+        # print("streamlist to remove", streamlist.split())
+        msg = await self.remove(streamlist.split(), interaction.guild_id)
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+
+    async def slashdetail(self, interaction: discord.Interaction, stream: str):
+        """Shows information about the given stream, similar to an announcement but different information.
+
+        :type interaction: discord.Interaction
+        :type stream: str
+        :param interaction: The discord Interaction that called this.
+        :param stream: The stream you wish to get detailed information about.
+        """
+        msg = ""
+        if not self.lastupdate:  # If the API update failed we can't do this - it'd timeout on the call.
+            msg = "The " + self.name + " API appears to be down currently, please retry your command after " \
+                                       "the API has returned. "
+        if len(stream.strip()) < 1:  # No stream given
+            msg += "\nYou must specify a stream name to show the detailed record for."
+        if msg:
+            await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay)
+        else:
+            try:
+                msg, embed = await self.detailannounce(stream, interaction.guild_id, dontsend=True)
+                await interaction.response.send_message(msg, embed=embed, ephemeral=True, delete_after=msgdelay,
+                                                        view=SendToChannel(self, msg, embed))
+            except ChannelNotSet:
+                await interaction.response.send_message(
+                    "You must specify an announcement channel via the channel command before calling "
+                    "detailannounce", ephemeral=True, delete_after=msgdelay)
+
+    async def slashlist(self, interaction: discord.Interaction):
+        """Shows the list of currently watched streams, and shows what options are enabled.
+
+        :param interaction: The discord Interaction that called this.
+        :return:
+        """
+        msg = await self.list(interaction.guild_id)
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
+                                                view=SendToChannel(self, msg, None))
+
+    async def add(self, command, guildid: int, channeltoset: Optional[discord.TextChannel]):
+        """Adds streams to the list of watched streams for a guild.
+
+        :type command: list
+        :type guildid: int
+        :type channeltoset: discord.TextChannel
+        :param command: Command list passed from handler
+        :param guildid: The id of the guild the command was used in.
+        :param channeltoset: A channel to set an override on for the given streams.
+        :rtype: str
+        """
+        mydata = self.mydata
+        if not (guildid in mydata["Servers"]):
             # Haven't created servers info dict yet, make a dict.
-            mydata["Servers"][message.guild.id] = {}
-        if not ("Listens" in mydata["Servers"][message.guild.id]):
+            mydata["Servers"][guildid] = {}
+        if not ("Listens" in mydata["Servers"][guildid]):
             # No listens added yet, make a set
-            mydata["Servers"][message.guild.id]["Listens"] = set()
-        announced = False
+            mydata["Servers"][guildid]["Listens"] = set()
+        announced = 0
         added = set()
         msg = ""
         notfound = set()
         # We're going to be setting a stream override, so make sure the needed dicts are in place.
-        if message.channel_mentions:  # Channel mention, so make an override
-            if message.channel_mentions[0].guild != message.guild:
-                await message.reply("I could not find " + message.channel_mentions[0].name +
-                                    " in this server.", mention_author=False)
-                return
+        if channeltoset:  # Channel mention, so make an override
+            if channeltoset.guild.id != guildid:
+                return "I could not find " + channeltoset.name + " in this server."
             if 'COver' not in mydata:  # We need to make the section
                 mydata['COver'] = {}  # New dict
-            if message.guild.id not in mydata['COver']:
-                mydata['COver'][message.guild.id] = {}
-        for newstream in command[1:]:
+            if guildid not in mydata['COver']:
+                mydata['COver'][guildid] = {}
+        for newstream in command:
             # print(newstream)
-            if len(mydata["Servers"][message.guild.id]["Listens"]) >= self.maxlistens:
+            if len(mydata["Servers"][guildid]["Listens"]) >= self.maxlistens:
                 msg += "Too many listens - limit is " + str(self.maxlistens) + " per server. Did not add " + newstream \
                        + " or later streams."
                 break
@@ -1556,10 +1898,9 @@ class APIContext:
             newrecordid = ""  # String that holds the corrected stream name.
             # This is a channel mention, so don't try to add it as a stream
             if newstream.startswith('<#') and newstream.endswith('>'):
-                pass  # We don't set newrecordid so it'll get skipped
-            # Need to match case with the API name, so test it first
-            # If we already are watching it, it must be the correct name.
-            # OR if the stream is in parsed, it must be the correct name.
+                pass  # We need to skip any channel mentions. Since we don't set newrecordid below it'll get skipped
+            # Need to match case with the API name, so test it first.
+            # If we already are watching it OR if the stream is in parsed, it should be the correct name.
             elif (newstream not in mydata["AnnounceDict"]) and (newstream not in self.parsed):
                 if not self.lastupdate:  # If the API update failed we can't do this - it'd timeout on the call.
                     msg = "The " + self.name + " API appears to be down currently, please retry your command after " \
@@ -1582,24 +1923,24 @@ class APIContext:
                 # This marks the stream as being listened to by the server
                 if not (newrecordid in mydata["AnnounceDict"]):
                     mydata["AnnounceDict"][newrecordid] = set()
-                mydata["AnnounceDict"][newrecordid].add(message.guild.id)
+                mydata["AnnounceDict"][newrecordid].add(guildid)
                 # This marks the server as listening to the stream
-                mydata["Servers"][message.guild.id]["Listens"].add(newrecordid)
-                if message.channel_mentions:  # Channel mention, so make an override
-                    if newrecordid not in mydata['COver'][message.guild.id]:
-                        mydata['COver'][message.guild.id][newrecordid] = {}
+                mydata["Servers"][guildid]["Listens"].add(newrecordid)
+                if channeltoset:  # Channel mention, so make an override
+                    if newrecordid not in mydata['COver'][guildid]:
+                        mydata['COver'][guildid][newrecordid] = {}
                     # Set this servers stream override for this stream to the mentioned channel.
-                    await self.setstreamoption(message.guild.id, 'Channel', newrecordid, message.channel_mentions[0].id)
+                    await self.setstreamoption(guildid, 'Channel', newrecordid, channeltoset.id)
                 else:  # If we're not SETTING an override, delete it.
-                    await self.setstreamoption(message.guild.id, 'Channel', newrecordid)
+                    await self.setstreamoption(guildid, 'Channel', newrecordid)
                 added.add(newrecordid)
                 # Haven't announced a stream yet and stream is online
-                if (not announced) and (newrecordid in self.parsed):
+                if (announced < 5) and (newrecordid in self.parsed):
                     try:
                         # Don't announce if we already have one
-                        if not (await self.getmsgid(message.guild.id, newrecordid)):
-                            await self.announce(self.parsed[newrecordid], message.guild.id)
-                            announced = True  # We announced a stream, don't do another
+                        if not (await self.getmsgid(guildid, newrecordid)):
+                            await self.announce(self.parsed[newrecordid], guildid)
+                            announced = announced + 1  # We announceup to 5 streams in a single add command.
                     except KeyError:
                         # traceback.print_tb(e.__traceback__)
                         pass  # Channel wasn't in dict, not online, ignore.
@@ -1614,24 +1955,43 @@ class APIContext:
             msg += "\nThe following streams were not found and could not be added: " + ", ".join(notfound)
         if not msg:
             msg += "Unable to add any streams due to unknown error."
-        # We check for API down above now, so this isn't needed. If we didn't hit the check above, then it don't matter
-        # if not self.lastupdate:  # Note if the API update failed
-        #     msg += "\n**The last attempt to update the API failed**, the API may be down. Please try your command " \
-        #            "again later. "
-        channel = await self.resolvechannel(message.guild.id)
+        channel = await self.resolvechannel(guildid)
         if not channel:
             msg += "\nYou must set an announcement channel via the channel command before announcements will work!"
-        await message.reply(msg, mention_author=False)
-        return
+        return msg
 
-    async def list(self, command, message):
+    async def channel(self, guildid: int, channelid: int, channeltoset: discord.TextChannel = None):
+        mydata = self.mydata
+        # This sets the channel to perform announcements/bot responses to.
+        if channeltoset:
+            # Ensure the given channel is in this guild, or else we don't accept it.
+            if channeltoset.guild.id != guildid:
+                return "I could not find " + channeltoset.name + " in this server."
+            # Set our channel id to the id of the channel passed in.
+            channelid = channeltoset.id
+        if not (guildid in mydata["Servers"]):
+            mydata["Servers"][guildid] = {}  # Add data storage for server
+        try:  # Try to delete the Stop override if it exists
+            del mydata['COver'][guildid]['Stop']
+        except KeyError:
+            pass  # If it doesn't, ignore it.
+        mydata["Servers"][guildid]["AnnounceChannel"] = channelid
+        channel = await self.resolvechannel(guildid, channelid=channelid)
+        msg = "Ok, I will now use " + channel.mention + " for announcements."
+        # Do we have permission to talk in that channel?
+        if not channel.permissions_for(channel.guild.me).send_messages:
+            msg += "\nI **do not** have permission to send messages in that channel! Announcements will fail " \
+                   "until permission is granted. "
+        return msg
+
+    async def list(self, guildid: int):
         """List options and current list of watched streams
 
-        :param command: Command list passed from handler - not needed for list.
-        :param message: The discord.Message instance that invoked the handler.
+        :param guildid: The id of the guild that invoked the handler.
+        :rtype: str
         """
         mydata = self.mydata
-        channel = await self.resolvechannel(message.guild.id)
+        channel = await self.resolvechannel(guildid)
         if channel:
             msg = "I am currently announcing in " + channel.mention + "."
         else:
@@ -1640,13 +2000,13 @@ class APIContext:
         try:
             # Create list of watched streams, bolding online ones.
             newlist = []
-            for item in mydata["Servers"][message.guild.id]["Listens"]:
+            for item in mydata["Servers"][guildid]["Listens"]:
                 newitem = item
                 if item in self.parsed:  # Stream is online
                     newitem = "**" + item + "**"
                 try:  # See if we have an override set, and add it if so.
-                    chan = await self.resolvechannel(message.guild.id,
-                                                     channelid=mydata['COver'][message.guild.id][item]
+                    chan = await self.resolvechannel(guildid,
+                                                     channelid=mydata['COver'][guildid][item]
                                                      ['Option']['Channel'])
                     if chan:
                         newitem += ":" + chan.mention
@@ -1659,13 +2019,13 @@ class APIContext:
             msg += " No streams are currently set to be watched"
         msg += ".\nAnnouncement type set to "
         # Check our announcement type - default/noprev/simple.
-        atype = await self.getoption(message.guild.id, 'Type')
+        atype = await self.getoption(guildid, 'Type')
         msg += atype + " and "
         # Check our message type - edit/delete/static.
-        msgtype = await self.getoption(message.guild.id, 'MSG')
+        msgtype = await self.getoption(guildid, 'MSG')
         msg += msgtype + " messages."
         # Do we show streams marked as adult? Not all streams support this
-        adult = await self.getoption(message.guild.id, 'Adult')
+        adult = await self.getoption(guildid, 'Adult')
         if adult == 'showadult':
             msg += " Adult streams are shown normally."
         elif adult == 'hideadult':
@@ -1677,129 +2037,134 @@ class APIContext:
             msg += "**WARNING!** Unknown option set for Adult streams! Please reset the adult option!"
         if not self.lastupdate:  # Note if the API update failed
             msg += "\n**Last " + str(self.lastupdate.failed) + " attempt(s) to update API failed.**"
-        if await self.getoption(message.guild.id, 'Stop'):
+        if await self.getoption(guildid, 'Stop'):
             msg += "\nMessages are currently stopped via the stop command."
-        await message.reply(msg, mention_author=False)
+        return msg
 
-    async def option(self, command, message):
+    async def option(self, command: List[str], guildid: int):
         """Sets or clears one or more options for the server.
 
         :param command: Command list passed from handler
-        :param message: The discord.Message instance that invoked the handler.
+        :param guildid: The discord.Message instance that invoked the handler.
+        :rtype: str
         """
-        if len(command) == 1:
-            msg = "No option provided. Please use the help menu for info on how to use the option command."
-            await message.reply(msg, mention_author=False)
-            return
+        if len(command) == 0:
+            return "No option provided. Please use the help command for info on how to use the option command."
         msg = ""
         setopt = set()
         unknown = False
-        for newopt in command[1:]:
+        for newopt in command:
             newopt = newopt.lower()
             if newopt == 'clear':  # Clear all out options
                 for group in ('Type', 'MSG', 'Adult', 'Notify'):
-                    await self.setoption(message.guild.id, group)
+                    await self.setoption(guildid, group)
                 setopt.add(newopt)
             elif newopt in ("default", "noprev", "simple"):
-                await self.setoption(message.guild.id, "Type", newopt)
+                await self.setoption(guildid, "Type", newopt)
                 setopt.add(newopt)
             elif newopt in ("delete", "edit", "static"):
-                await self.setoption(message.guild.id, "MSG", newopt)
+                await self.setoption(guildid, "MSG", newopt)
                 setopt.add(newopt)
             elif newopt in ("showadult", "hideadult", "noadult"):
-                await self.setoption(message.guild.id, "Adult", newopt)
+                await self.setoption(guildid, "Adult", newopt)
                 setopt.add(newopt)
             elif newopt in ("notify", "notifyoff"):
                 if newopt == "notify":
-                    await self.setoption(message.guild.id, "Notify", None)
+                    await self.setoption(guildid, "Notify", None)
                 else:
-                    await self.setoption(message.guild.id, "Notify", False)
+                    await self.setoption(guildid, "Notify", False)
             else:
                 unknown = True
         if setopt:
             msg += "Options set: " + ", ".join(setopt) + ". "
         if unknown:
             msg += "One or more unknown options found. Please check the help menu for available options."
-        await message.reply(msg, mention_author=False)
+        return msg
 
-    async def streamoption(self, command, message):
+    async def streamoption(self, record, command, guild: "discord.guild", guildid: int,
+                           channel: Optional["discord.TextChannel"]):
         """Sets or clears one or more options for a single watched stream in the server. If no options are given, it
         shows the currently set options for the given stream.
 
-        :param command: Command list passed from handler
-        :param message: The discord.Message instance that invoked the handler.
+        :param record: Name of the stream we're setting options for.
+        :param channel: Channel to use for announcements.
+        :param command: Option list passed from handler
+        :param guild: The guild the interaction occured in. Used to set channel.
+        :param guildid: The discord.Message instance that invoked the handler.
+        :rtype: str
         """
         mydata = self.mydata
-        if len(command) < 2:
-            msg = "Command requires a stream name, or a stream name and option(s). Please use the help menu " \
-                  "for info on how to use the streamoption command. "
-            await message.reply(msg, mention_author=False)
-            return
         # If we're not listening to it right now, don't set the override.
         # This avoids mismatched capitalization from the user setting the
         # override on the wrong name.
-        record = command[1]  # Name of stream
-        if not (message.guild.id in mydata["Servers"]
-                and record in mydata["Servers"][message.guild.id]["Listens"]):
+        if not (guildid in mydata["Servers"]
+                and record in mydata["Servers"][guildid]["Listens"]):
             msg = record + "is not in your list of watched streams. Check spelling and capitalization and " \
                            "try again. "
-            await message.reply(msg, mention_author=False)
-            return
-        if len(command) == 2:  # No options given, just show current options
+            return msg
+        if len(command) == 0:  # No options given, just show current options
             msg = "No overrides exist for the given stream; all options will default to the server wide settings."
             try:
                 options = {}
                 # Copy the Options from the override to here,
                 # we need to make a slight edit
-                options.update(mydata['COver'][message.guild.id][record]['Option'])
+                options.update(mydata['COver'][guildid][record]['Option'])
                 # print("streamoption",options)
                 if 'Channel' in options:
-                    foundchan = await self.resolvechannel(message.guild.id, channelid=options['Channel'])
+                    foundchan = await self.resolvechannel(guildid, channelid=options['Channel'])
                     if foundchan:
                         options['Channel'] = foundchan.mention
                 msg = "\n".join([str(i[0]) + ": " + str(i[1]) for i in options.items()])
                 msg = "The following overrides are set (Option: Setting) :\n" + msg
             except KeyError:
                 pass
-            await message.reply(msg, mention_author=False)
-            return
+            return msg
         msg = ""
         setopt = set()
         unknown = False
-        for newopt in command[2:]:
+        if channel:
+            if channel.guild.id != guildid:
+                msg = ("The provided channel is not in this guild! You can not set cross guild messages to be sent! No "
+                       "options have been set.")
+                return msg
+            await self.setstreamoption(guildid, 'Channel', record, channel.id)
+            setopt.add(channel.name)
+        for newopt in command:
             # Valid options are all lower case, or channel mentions, which have no
             # letters in them.
             newopt = newopt.lower()
             if newopt == 'clear':  # Clear all stream options
                 try:
-                    del mydata['COver'][message.guild.id][record]
+                    del mydata['COver'][guildid][record]
                 except KeyError:
                     pass
                 setopt.add(newopt)
-            # This is a channel mention, set the channel override
+            # This is a channel mention, set the channel override. This can only show up with the text version, as the
+            # slash command only allows pre-set options.
             elif newopt.startswith('<#') and newopt.endswith('>'):
                 # Technically this might not be a valid channel if someone just types it up manually, though an
                 # actual channel mention will always be a real channel, even if the bot can't necessarily see it
-                chan = await self.validatechannel(newopt, message.guild)
+                # It might be a mention to a channel in another guild, which is definitely a no no.
+                chan = await self.validatechannel(newopt, guild)
                 if chan:
-                    await self.setstreamoption(message.guild.id, 'Channel', record, int(newopt[2:-1]))
+                    await self.setstreamoption(guildid, 'Channel', record, int(newopt[2:-1]))
                     setopt.add(newopt)
                 else:
                     msg += "I was unable to find channel " + newopt + ". "
             elif newopt in ("default", "noprev", "simple"):
-                await self.setstreamoption(message.guild.id, "Type", record, newopt)
+                await self.setstreamoption(guildid, "Type", record, newopt)
                 setopt.add(newopt)
             elif newopt in ("delete", "edit", "static"):
-                await self.setstreamoption(message.guild.id, "MSG", record, newopt)
+                await self.setstreamoption(guildid, "MSG", record, newopt)
                 setopt.add(newopt)
             elif newopt in ("showadult", "hideadult", "noadult"):
-                await self.setstreamoption(message.guild.id, "Adult", record, newopt)
+                await self.setstreamoption(guildid, "Adult", record, newopt)
                 setopt.add(newopt)
             elif newopt in ("notify", "notifyoff"):
                 if newopt == "notify":
-                    await self.setstreamoption(message.guild.id, "Notify", record, None)
+                    await self.setstreamoption(guildid, "Notify", record, None)
                 else:
-                    await self.setstreamoption(message.guild.id, "Notify", record, False)
+                    await self.setstreamoption(guildid, "Notify", record, False)
             else:
                 # We had at least one unknown option
                 unknown = True
@@ -1807,27 +2172,29 @@ class APIContext:
             msg += "Options set: " + ", ".join(setopt) + ". "
         if unknown:
             msg += "One or more unknown options found. Please check the help menu for available options."
-        await message.reply(msg, mention_author=False)
+        return msg
 
-    async def remove(self, command, message):
+    async def remove(self, command, guildid: int):
         """Removes streams from the list of watched streams for a guild.
 
-        :param command: Command list passed from handler
-        :param message: The discord.Message instance that invoked the handler.
+        :type command: list
+        :type guildid: int
+        :param command: Command list passed from handler, has streams separated by space.
+        :param guildid: The id of the guild the command was used in.
+        :rtype: str
         """
         mydata = self.mydata
-        if not (message.guild.id in mydata["Servers"]):
+        if not (guildid in mydata["Servers"]):
             # Haven't created servers info dict yet
-            await message.reply("No streams are being listened to yet!", mention_author=False)
-            return
-        if not ("Listens" in mydata["Servers"][message.guild.id]):
+            return "No streams are being listened to yet!"
+        if not ("Listens" in mydata["Servers"][guildid]):
             # No listens added yet
-            await message.reply("No streams are being listened to yet!", mention_author=False)
-            return
+            return "No streams are being listened to yet!"
         added = set()
         msg = ""
         notfound = set()
-        for newstream in command[1:]:
+        # print("remove func, list:", command)
+        for newstream in command:
             # If the name ends with a comma, strip it off. This allows
             # to copy/paste the result of the list command into remove
             # to remove all those streams.
@@ -1835,37 +2202,38 @@ class APIContext:
                 newstream = newstream[:-1]
             # print(newstream)
             try:
-                mydata["AnnounceDict"][newstream].remove(message.guild.id)
+                mydata["AnnounceDict"][newstream].remove(guildid)
                 added.add(newstream)
                 # If no one is watching that stream anymore, remove it
                 if not mydata["AnnounceDict"][newstream]:
                     mydata["AnnounceDict"].pop(newstream, None)
             except ValueError:
                 notfound.add(newstream)
-                pass  # Value not in list, don't worry about it
+                pass  # Value not in list, add it to the not found list
             except KeyError:
                 notfound.add(newstream)
-                pass  # Value not in list, don't worry about it
+                pass  # Value not in list, add it to the not found list
             try:
-                mydata["Servers"][message.guild.id]["Listens"].remove(newstream)
+                mydata["Servers"][guildid]["Listens"].remove(newstream)
             except ValueError:
                 pass  # Value not in list, don't worry about it
             except KeyError:
+                # print(newstream, mydata["Servers"][guildid]["Listens"])
                 pass  # Value not in list, don't worry about it
             # If 'delete' option set, delete any announcement for that stream.
-            if ("MSG" in mydata["Servers"][message.guild.id]) and (
-                    mydata["Servers"][message.guild.id]["MSG"] == "delete"):
+            if ("MSG" in mydata["Servers"][guildid]) and (
+                    mydata["Servers"][guildid]["MSG"] == "delete"):
                 # This will delete announcement and clear savedmsg for us
                 try:
-                    await self.removemsg(parsed[newstream], [message.guild.id])
+                    await self.removemsg(parsed[newstream], [guildid])
                 except KeyError:  # If stream not online, parsed won't have record.
                     pass
             else:
                 # We still need to remove any savedmsg and cached Message we have for this stream.
-                await self.rmmsg(message.guild.id, newstream)
+                await self.rmmsg(guildid, newstream)
             # And remove any overrides for the stream
             try:
-                del mydata['COver'][message.guild.id][command[1]]
+                del mydata['COver'][guildid][newstream]
             except KeyError:  # If any of those keys don't exist, it's fine
                 pass  # Ignore it, because the override isn't set.
         if added:
@@ -1874,41 +2242,40 @@ class APIContext:
             msg += "\nThe following streams were not found and could not be removed: " + ", ".join(notfound)
         if not msg:
             msg += "Unable to remove any streams due to unknown error."
-        await message.reply(msg, mention_author=False)
+        return msg
 
-    async def announceall(self, command, message):
+    async def announceall(self, guildid: int):
         """Gives announcements for any online streams missing them. Usually due to the bot being offline when the stream
         came online, though recent improvements should limit that.
 
-        :param command: Command list passed from handler, not needed for announceall
-        :param message: The discord.Message instance that invoked the handler.
+        :param guildid: ID for the guild where the command came from.
+        :rtype: str
         """
         mydata = self.mydata
         clive = 0  # Channels that are live
         canno = 0  # Channels that were announced
         # Iterate over all this servers' listens
-        if not (message.guild.id in mydata["Servers"] and
-                "Listens" in mydata["Servers"][message.guild.id]):
-            await message.reply("Server is not listening to any streams!", mention_author=False)
-            return
-        for item in mydata["Servers"][message.guild.id]["Listens"]:  # Iterate over servers watched streams
+        if not (guildid in mydata["Servers"] and
+                "Listens" in mydata["Servers"][guildid]):
+            return "Server is not listening to any streams!"
+        for item in mydata["Servers"][guildid]["Listens"]:  # Iterate over servers watched streams
             if item in self.parsed:  # Stream is online
                 clive = clive + 1  # Count of live watched streams
                 # Make sure we have a savedmsg, we're going to need it
-                if not (message.guild.id in mydata['SavedMSG']):
-                    mydata['SavedMSG'][message.guild.id] = {}
+                if not (guildid in mydata['SavedMSG']):
+                    mydata['SavedMSG'][guildid] = {}
                 # Stream isn't listed, announce it
-                if item not in mydata['SavedMSG'][message.guild.id]:
+                if item not in mydata['SavedMSG'][guildid]:
                     # print("Announcing",item)
-                    await self.announce(self.parsed[item], message.guild.id)
+                    await self.announce(self.parsed[item], guildid)
                     canno = canno + 1  # Count of live watched streams that needed an announcement
         msg = "Found " + str(clive) + " live stream(s), found " + str(
             canno) + " stream(s) that needed an announcement."
-        if await self.getoption(message.guild.id, 'Stop'):
+        if await self.getoption(guildid, 'Stop'):
             msg += "\nStop is currently enabled for this server - no announcements have been made. The " \
                    "'resume' command must be used to re-enable announcements. "
         if not self.lastupdate:  # Note if the API update failed
             msg += "\n**The last attempt to update API failed.** The API may be down. This will cause delays " \
                    "in announcing streams. Streams will be announced/edited/removed as needed when the API " \
                    "call succeeds. "
-        await message.reply(msg, mention_author=False)
+        return msg
