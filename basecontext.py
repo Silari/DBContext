@@ -1323,7 +1323,7 @@ class APIContext:
                     notifyrole: discord.Role = await self.getoption(server, "Notify")
                     # print("announce notify",repr(notifyrole))
                     notemsg = ""
-                    myview = False
+                    myview = None
                     # If server is using notifications, mention it
                     if notifyrole:
                         notemsg = notifyrole.mention + " "
@@ -1732,7 +1732,7 @@ class APIContext:
     async def slashoption(self, interaction: discord.Interaction, announcetype: Optional[HandlerEnums.AnnounceType],
                           edittype: Optional[HandlerEnums.EditType], adultoption: Optional[HandlerEnums.AdultOption],
                           notifyoption: Optional[HandlerEnums.NotifyOption]):
-        """Sets options for your server. Options should be separated by spaces. See 'help options' for details.
+        """Sets options for your server. See 'help options' for details.
 
         :param interaction: The discord Interaction that called this.
         :param announcetype: Sets the style of announcements.
@@ -1742,10 +1742,16 @@ class APIContext:
         :return:
         """
         # We need to convert the enum value to the proper text, which is the name of that enum value.
-        msg = await self.option([str(announcetype).split('.')[1],
-                                 str(edittype).split('.')[1],
-                                 str(adultoption).split('.')[1],
-                                 str(notifyoption).split('.')[1]],
+        optlist = []
+        if announcetype:
+            optlist.append(str(announcetype).split('.')[1])
+        if edittype:
+            optlist.append(str(edittype).split('.')[1])
+        if adultoption:
+            optlist.append(str(adultoption).split('.')[1])
+        if notifyoption:
+            optlist.append(str(notifyoption).split('.')[1])
+        msg = await self.option(optlist,
                                 interaction.guild_id)
         await interaction.response.send_message(msg, ephemeral=True, delete_after=msgdelay,
                                                 view=SendToChannel(self, msg, None))
@@ -1770,11 +1776,17 @@ class APIContext:
         :return:
         """
         # We need to convert the enum value to the proper text, which is the name of that enum value.
+        optlist = []
+        if announcetype:
+            optlist.append(str(announcetype).split('.')[1])
+        if edittype:
+            optlist.append(str(edittype).split('.')[1])
+        if adultoption:
+            optlist.append(str(adultoption).split('.')[1])
+        if notifyoption:
+            optlist.append(str(notifyoption).split('.')[1])
         msg = await self.streamoption(streamname,
-                                      [str(announcetype).split('.')[1],
-                                       str(edittype).split('.')[1],
-                                       str(adultoption).split('.')[1],
-                                       str(notifyoption).split('.')[1]],
+                                      optlist,
                                       interaction.guild,
                                       interaction.guild_id,
                                       channel)

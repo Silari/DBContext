@@ -124,7 +124,8 @@ try:
         contexts = pickle.load(f)
 except FileNotFoundError:
     pass
-print("Initial Contexts:", contexts)
+if apitoken.botname == "PicartoBot-Dev":
+    print("Initial Contexts:", contexts)
 newcont = {}
 contfuncs = {}
 
@@ -143,8 +144,8 @@ async def resolveuser(userid, guild=None):
      not found. If guild is not provided, searches the Client users list and returns the found User instance, or None if
      not found.
     """
+    # print(userid)
     # This is a mention string so we need to remove the mention portion of it.
-    print(userid)
     if userid.startswith('<@!'):
         userid = userid[3:-1]
     elif userid.startswith('<@'):
@@ -181,6 +182,13 @@ class NotifyRoleView(discord.ui.View):
     @staticmethod
     def needsview(guildid:int):
         try:
+            # Server is using a non-managed role for notification. We do not need the view.
+            if guildid in contexts['manage']['Data']['notifyrole']:
+                return False
+        except KeyError:
+            pass
+        try:
+            # Server is using the managed notifications. We need the view.
             if guildid in contexts['manage']['Data']['notifyserver']:
                 return True
         except KeyError: # If anything failed, we're fine.
@@ -297,8 +305,8 @@ class DbClient(discord.Client):
         if apitoken.devserver > 0:  # If we have a devserver set, lets use it.
             self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver))
             await self.tree.sync(guild=discord.Object(id=apitoken.devserver))
-            self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver2))
-            await self.tree.sync(guild=discord.Object(id=apitoken.devserver2))
+            # self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver2))
+            # await self.tree.sync(guild=discord.Object(id=apitoken.devserver2))
         # await self.tree.sync()
         self.loop.create_task(savetask())
         for modname in taskmods:
@@ -1395,7 +1403,10 @@ class ManageCommands:
         # This will remove notifyrole if it has been set, no need to check
         if interaction.guild_id in mydata['notifyrole']:
             msg += " The notification role has been unset."
-            del mydata['notifyrole'][interaction.guild_id]
+            try:
+                del mydata['notifyrole'][interaction.guild_id]
+            except KeyError:
+                pass
         await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
         return
 
