@@ -1,13 +1,4 @@
-# DON'T UPDATE APIS IF BOT ISN'T CONNECTED
-#  No way to find this out?
-#  Maybe via 'if client.user' - will be None if not logged in?
-
 # TESTING NOTES
-
-# notifyon notes
-# Optionally include a channel mention to ensure role has permission to view? Seems unneccessary.
-# Though I'm putting this message where the notifyon is given, so hey
-# maybe it is useful.
 
 # Need some way to say that an API doesn't support an option, like twitch for adult
 # Thought about getoption=None but that's the fallback if it doesn't exist.
@@ -37,7 +28,7 @@
 
 
 # Import module and setup our client and token.
-from typing import Dict, Union  # , Optional
+from typing import Dict, Union, Optional
 
 import discord
 import copy  # Needed to deepcopy contexts for periodic saving
@@ -53,12 +44,15 @@ import piczelclass
 import twitchclass
 # This holds the needed API keys. You may want to use other methods for storing these.
 import apitoken
+from enum import Enum
+
+# noinspection PyUnreachableCode
 if False:
-    import basecontext  # Not used by needed for typing
+    import basecontext  # Not used but needed for typing
 
 # discord bot with module based functionality.
 # based on discord.py:
-discordversion = '1.7.3'
+discordversion = '2.4.0'
 
 # Ensure we're using the expected version of discord.py. Not spending 2 hours troubleshooting AGAIN cause of that.
 if discord.__version__ != discordversion:
@@ -69,49 +63,27 @@ token = apitoken.token
 if not token:
     raise Exception("You must provide a valid Discord API token for use!")
 
-version = "1.4"  # Current bot version
+version = "1.5"  # Current bot version
 changelogurl = "https://github.com/Silari/DBContext/wiki/ChangeLog"
 # We're not keeping the changelog in here anymore - it's too long to reliably send
 # as a discord message, so it'll just be kept on the wiki. Latest version will be
 # here solely as an organizational thing, until it's ready for upload to the wiki
 # proper.
-changelog = '''1.3 Changelog:
-Fix notify system breakage due to API changes.
-Embed image is now removed without transforming to dict thanks to that being added to discord.py.
-Changed deprecated fetch_offline_members parameter to Client to chunk_guilds_at_startup.
-Fix to copy dict keys to list when iterating over SavedMSG to prevent an error from modifying the dict during iteration.
-savedata no longer returns False if no data to save, instead return is optional.
-loaddata type updated - only one dict.
-Change to how it checks for an HTML document return - used to see if piczel is in maintenance mode.
-Resolved issue where removemsg would continue the loop without removing the savedmsg if the channel or message were not
- found.
-API down message now includes date and time of the occurrence.
-TwitchContext now grabs the user records for any streams that come online, which is preserved across update checks. This
- gives us a bit more information for their embeds: user avatar and total viewers are now part of simple and default 
- announcement embeds. Detail embeds from the detail command are unchanged.
-Deleted announcement messages are now removed from the cache and SavedMSG - this allows them to be immediately 
-re-announced and stops the bot from trying to edit them anymore.
-Corrected issue in picartorecord that did not remove the parent stream from the list of multi-stream partners.
-Fixed missing character in help messages.
-detail and add commands will no longer attempt API calls if the API is down - instead returns a message stating it is
- down and to retry later.
-APIs are marked as down immediately on class creation - this should be updated by the initial update before the bot is
- even fully ready for Discord. If not, the API is almost certainly down even if it hasn't hit the timeout yet, so 
- commands will give the proper API down message. Loading data successfully will also mark the API as up (since it meant 
- the API was up recently).
-Fixed help still showing 'listen' command - was changed to 'channel'.
-Unknown commands once again prompt a message from the bot instead of being silently ignored.
+changelog = '''1.5 Changelog:
+Updated from discord.py 1.7.3 to 2.4.0.
+Added slash commands (in process)
+1.4 Changelog:
+Added notifyrole option in manage, to choose what role gets mentioned in stream announcements.
 '''
 
+taskmods = []
+tasks = []
 myloop = asyncio.get_event_loop()
-client = discord.Client(loop=myloop, chunk_guilds_at_startup=False, max_messages=None)
+intents = discord.Intents.default()
+intents.message_content = True
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
-# The old version lacks manage_messages, which we need now to pin our reaction messages in notifyon
-# invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268913728"
-# The old invite does not have manage roles permission, needed for the manage module
-# oldinvite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=478272"
 # URL to the github wiki for DBContext, which has a help page
 helpurl = "https://github.com/Silari/DBContext/wiki"
 
@@ -122,14 +94,14 @@ presencemessage: str = ''
 # Timeout used for our aiohttp instance
 conntimeout = 30
 
+# Delay for ephemeral messages
+msgdelay = 60
+
 # Role names for the manage module
 managerolename = "StreamManage"
 notifyrolename = "StreamNotify"
 
 calledstop = False  # Did we intentionally stop the bot?
-
-taskmods = []
-tasks = []
 
 # Keep a dict of Contexts
 # Contexts
@@ -144,15 +116,16 @@ tasks = []
 #       |AnnounceDict
 #       |Servers
 #       |Listens
-
 contexts = {}
+
 # Try to load a previously saved contexts dict
 try:
     with open('dbcontexts.bin', mode='rb') as f:
         contexts = pickle.load(f)
 except FileNotFoundError:
     pass
-# print("Initial Contexts:", contexts)
+if apitoken.botname == "PicartoBot-Dev":
+    print("Initial Contexts:", contexts)
 newcont = {}
 contfuncs = {}
 
@@ -171,6 +144,7 @@ async def resolveuser(userid, guild=None):
      not found. If guild is not provided, searches the Client users list and returns the found User instance, or None if
      not found.
     """
+    # print(userid)
     # This is a mention string so we need to remove the mention portion of it.
     if userid.startswith('<@!'):
         userid = userid[3:-1]
@@ -178,6 +152,7 @@ async def resolveuser(userid, guild=None):
         userid = userid[2:-1]
     if guild:
         # TODO Does this actually still work without intents??? No, no it doesnt. frick.
+        #  Less of an issue with slash commands taking the member instance directly.
         if '#' in userid:
             founduser = discord.utils.find(lambda m: str(m) == userid, guild.members)
         else:
@@ -189,6 +164,74 @@ async def resolveuser(userid, guild=None):
             founduser = discord.utils.find(lambda m: str(m.id) == userid, client.users)
     return founduser
 
+class NotifyRoleView(discord.ui.View):
+    """View that creates a button the user can click to send the information in the message to the announcement
+     channel. Since messages are ephemeral they may want it there so the info is available later."""
+    def __init__(self):
+        """
+
+        """
+        super().__init__(timeout=0)
+
+    def on_error(self,interaction:discord.Interaction, error: Exception, item:discord.ui.Item):
+        if isinstance(error, discord.app_commands.CheckFailure):  # Don't care about this error.
+            return
+        print("Error happened!", interaction.command.name, " : ", error)
+        traceback.print_tb(error.__traceback__)
+
+    @staticmethod
+    def needsview(guildid:int):
+        try:
+            # Server is using a non-managed role for notification. We do not need the view.
+            if guildid in contexts['manage']['Data']['notifyrole']:
+                return False
+        except KeyError:
+            pass
+        try:
+            # Server is using the managed notifications. We need the view.
+            if guildid in contexts['manage']['Data']['notifyserver']:
+                return True
+        except KeyError: # If anything failed, we're fine.
+            return False
+        return False
+
+    @discord.ui.button(label="Notify me!", style=discord.ButtonStyle.primary, custom_id="NotifyOn")
+    async def giverole(self, interaction: discord.Interaction, button: discord.ui.Button):
+        mydata = contexts['manage']['Data']  # Has our contexts data in it
+        # Grab the ID for the notify message from mydata.
+        msgid = mydata['notifyserver'][interaction.guild_id]
+        # We need to find our role in the server.
+        notifyrole = None  # The notify role
+        try:
+            # mydata["notify"] has a dict of MSGID:RoleID. If no message id, no role
+            # The server owner has to have used the 'manage notify' command to set it up
+            notifyrole = interaction.guild.get_role(mydata["notifymsg"][msgid])
+        except Exception as e:  # If we fail for any reason, ignore it
+            # For debugging reasons, we print the error
+            print("Failed to find role?", repr(e))  # Possible the server isn't using it anymore?
+        if not notifyrole:  # We couldn't find the notify role for this guild
+            return
+        await interaction.user.add_roles(notifyrole, reason="Adding user to notify list")
+        await interaction.response.send_message("Role has been added!", ephemeral=True, delete_after=10)
+
+    @discord.ui.button(label="Stop notifying me!", style=discord.ButtonStyle.primary, custom_id="NotifyOff")
+    async def removerole(self, interaction: discord.Interaction, button: discord.ui.Button):
+        mydata = contexts['manage']['Data']  # Has our contexts data in it
+        # Grab the ID for the notify message from mydata.
+        msgid = mydata['notifyserver'][interaction.guild_id]
+        # We need to find our role in the server.
+        notifyrole = None  # The notify role
+        try:
+            # mydata["notify"] has a dict of MSGID:RoleID. If no message id, no role
+            # The server owner has to have used the 'manage notify' command to set it up
+            notifyrole = interaction.guild.get_role(mydata["notifymsg"][msgid])
+        except Exception as e:  # If we fail for any reason, ignore it
+            # For debugging reasons, we print the error
+            print("Failed to find role?", repr(e))  # Possible the server isn't using it anymore?
+        if not notifyrole:  # We couldn't find the notify role for this guild
+            return
+        await interaction.user.remove_roles(notifyrole, reason="Removing user from notify list")
+        await interaction.response.send_message("Role has been removed!", ephemeral=True, delete_after=10)
 
 class LimitedClient:
     """Allows modules limited access to needed Client functionality."""
@@ -209,6 +252,10 @@ class LimitedClient:
         # Stores Message instances into a cache. More selectful than the discord.py one, and keeps messages until they
         # are explicitly removed from it, rather than having a limit.
         self.messagecache: Dict[int, discord.Message] = {}
+        # Command tree instance to use for adding commands to.
+        self.tree = parentclient.tree
+        # Name of the manage role. Used for checking permissions.
+        self.managerolename = managerolename
 
     async def cacheadd(self, message):
         """Adds the given Message instance to the cache.
@@ -244,8 +291,55 @@ class LimitedClient:
             raise ValueError("cacheremove requires either a Message instance or a message ID!")
         return self.messagecache.pop(messageid, None)
 
+    NotifyRoleView = NotifyRoleView
 
+class DbClient(discord.Client):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.slashcontext = discord.app_commands.AppCommandContext(guild=True, dm_channel=False, private_channel=False)
+        # The tree that holds our slash commands.
+        self.tree = discord.app_commands.CommandTree(self, fallback_to_global=True,
+                                                     allowed_contexts=self.slashcontext)
+
+    async def setup_hook(self) -> None:
+        if apitoken.devserver > 0:  # If we have a devserver set, lets use it.
+            self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver))
+            await self.tree.sync(guild=discord.Object(id=apitoken.devserver))
+            # self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver2))
+            # await self.tree.sync(guild=discord.Object(id=apitoken.devserver2))
+        # await self.tree.sync()
+        self.loop.create_task(savetask())
+        for modname in taskmods:
+            # print("Starting task for:",modname.name)
+            # This starts the modules updatewrapper and passes the connection to it.
+            self.loop.create_task(modname.updatewrapper(self.myconn))
+
+
+# Our discord client subclass instance.
+client = DbClient(loop=myloop, chunk_guilds_at_startup=False, max_messages=None, intents=intents)
+
+# This is passed to contexts to interact with a limited set of client features.
 fakeclient = LimitedClient(client)
+
+
+@client.tree.command()
+@discord.app_commands.checks.has_role("Trixie")
+async def testcommand(interaction: discord.Interaction):
+    """A description for this command"""
+    await interaction.response.send_message("test message", ephemeral=True, delete_after=30)
+
+
+@client.tree.error
+async def command_error(interaction: discord.Interaction, error: discord.app_commands.AppCommandError):
+    """Called when a command has an error."""
+    if isinstance(error, discord.app_commands.CheckFailure):  # User did not have perms to run this command
+        await interaction.response.send_message("You do not have the required permissions in the server to use"
+                                                " commands." + "\nFor help, please go to " + helpurl,
+                                                ephemeral=True,
+                                                delete_after=30)
+        return
+    print("Error happened!", interaction.command.name, " : ", error)
+    traceback.print_tb(error.original.__traceback__)
 
 
 @client.event
@@ -265,15 +359,18 @@ async def on_raw_message_delete(rawdata):
             # Holds the recordname which is using this message_id
             foundname = None  # Start with None and fill in later.
             # If this context has a SavedMSG and this guild is in that SavedMSG
-            if context.mydata['SavedMSG'] and context.mydata['SavedMSG'][rawdata.guild_id]:
+            if context.mydata['SavedMSG'] and rawdata.guild_id in context.mydata['SavedMSG']:
                 # Iterate over the key+value pairs and try and find out message_id
-                for key, value in context.mydata['SavedMSG'][rawdata.guild_id].items():
-                    # print("raw_message_delete", key, value)
-                    if value == rawdata.message_id:
-                        # print("Found message", key, value)
-                        # If it's found, copy the name to foundname so we can delete it AFTER escaping the loop.
-                        foundname = key
-                        break
+                try:
+                    for key, value in context.mydata['SavedMSG'][rawdata.guild_id].items():
+                        # print("raw_message_delete", key, value)
+                        if value == rawdata.message_id:
+                            # print("Found message", key, value)
+                            # If it's found, copy the name to foundname so we can delete it AFTER escaping the loop.
+                            foundname = key
+                            break
+                except KeyError:
+                    pass
             # print("foundname", foundname)
             if foundname:
                 del context.mydata['SavedMSG'][rawdata.guild_id][foundname]
@@ -317,7 +414,7 @@ async def getglobal(guildid, option):
             if roleid:
                 # Use the found id to get the actual role.
                 return guild.get_role(roleid)
-        except KeyError:  # Server doesn't have this option set. Fall back to default style.
+        except KeyError:
             pass
         try:
             # print('getglobal2',guildid,option)
@@ -338,31 +435,10 @@ async def getglobal(guildid, option):
     return None  # No option of that type found in any location.
 
 
-# Old code to convert from an old style of contexts
-def convertcontexts():
-    """Deprecated: Used to convert old contexts to new system for 0.5 due to discord.py changes. Kept in case we need
-    to make a similar change again at some point, though the setup for data has changed since then so it will need
-    rewriting. """
-    global newcont
-    newcont = copy.deepcopy(contexts)
-    for module in newcont:
-        if 'AnnounceDict' in contexts[module]['Data']:
-            for item in contexts[module]['Data']['AnnounceDict']:
-                newcont[module]['Data']['AnnounceDict'][item] = set(
-                    [int(x) for x in contexts[module]['Data']['AnnounceDict'][item]])
-        if 'Servers' in contexts[module]['Data']:
-            for item in contexts[module]['Data']['Servers']:
-                newcont[module]['Data']['Servers'].pop(item)
-                newcont[module]['Data']['Servers'][int(item)] = contexts[module]['Data']['Servers'][item]
-                if 'AnnounceChannel' in newcont[module]['Data']['Servers'][int(item)]:
-                    newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'] = int(
-                        newcont[module]['Data']['Servers'][int(item)]['AnnounceChannel'])
-
-
 # Function to setup new context handler - handles the dbcontext side of adding.
 # This should only be used directly by the builtin contexts of dbcontext.py.
 # All other contexts should use newmodcontext or newclasscontext.
-def newcontext(name, handlefunc, data):
+def newcontext(name, handlefunc, data, description, commands: dict):
     """Registers a new context for the bot to handle."""
     if not (name in contexts):
         # Context doesn't exist, create and init with default data and function
@@ -377,11 +453,73 @@ def newcontext(name, handlefunc, data):
             contexts[name]["Data"] = data
         else:  # If it was, merge it with saved data overwriting defaults
             contexts[name]["Data"] = {**data, **contexts[name]["Data"]}
+    if description:
+        # print("371", name, description)
+        newgroup = discord.app_commands.Group(name=name, description=description)
+        # TODO test this limits people properly. Looks to be working.
+        newgroup.interaction_check = checkperms  # Should only allow commands from those with proper permissions/roles.
+        for comname, command in commands.items():
+            # print(comname, command["description"], command["callback"])
+            newcom = discord.app_commands.Command(name=comname,
+                                                  description=command["description"],
+                                                  callback=command["callback"],
+                                                  parent=newgroup)
+            newgroup.add_command(newcom)
+        client.tree.add_command(newgroup)
     return
 
 
 contdict = {}  # type: Dict[str, basecontext.APIContext]
 
+
+async def checkperms(interaction: discord.Interaction):
+    if interaction.user.bot:  # No bots allowed.
+        return False
+    if (interaction.user.guild_permissions.administrator
+            or interaction.user.guild_permissions.manage_guild
+            or await hasmanagerole(interaction.user)):
+        print("User has perms:", interaction.command.name)
+        return True
+    print("No perms", interaction.command.name)
+    return False
+
+async def checkdebugperms(interaction: discord.Interaction):
+    """Check for debug command, only allows the bot creater.
+
+    :param interaction: Discord Interaction that called this.
+    :return:
+    """
+    if interaction.user.bot:  # No bots allowed.
+        return False
+    if interaction.user.id == apitoken.devuser:
+        return True
+    return False
+
+class SendToChannel(discord.ui.View):
+    """View that creates a button the user can click to send the information in the message to the announcement
+     channel. Since messages are ephemeral they may want it there so the info is available later."""
+
+    def __init__(self, message: str, embed: discord.Embed):
+        """Stores the context, message, and embed of the interaction it belongs to for later usage.
+
+        :param message: The message.content string of the interaction.
+        :param embed: The message.embed Embed of the interaction, if any, or None.
+        """
+        super().__init__()
+        self.message = message
+        self.embed = embed
+
+    @discord.ui.button(label="Send this message to this channel", style=discord.ButtonStyle.primary)
+    async def sendmessage(self, interaction: discord.Interaction, button: discord.ui.Button):
+        channel = await self.mycontext.resolvechannel(interaction.guild_id)
+        if not channel:  # No channel was set, so we have nowhere to put the message.
+            button.label = "No channel is set for this server!"
+            await interaction.response.edit_message(view=self)
+            return
+        await channel.send(self.message, embed=self.embed)
+        button.label = "Message has been sent!"
+        button.disabled = True
+        await interaction.response.edit_message(view=self)
 
 # Function to setup a module as a context - handles the module side of adding.
 def newmodcontext(contextmodule):
@@ -392,7 +530,9 @@ def newmodcontext(contextmodule):
     # defaultdata - a dict to populate the modules contexts[name]["Data"] with
     newcontext(contextmodule.name,
                contextmodule.handler,
-               contextmodule.defaultdata)
+               contextmodule.defaultdata,
+               contextmodule.description,
+               contextmodule.commands)
     contextmodule.client = fakeclient
     contextmodule.mydata = contexts[contextmodule.name]["Data"]
     contextmodule.getglobal = getglobal
@@ -413,11 +553,14 @@ def newclasscontext(classinst):
     # Instance needs the following:
     # Name - a string that acts as the command to activate and the name data is stored under
     # handler - the function to call with the command requested, the message event, and a reference to the modules data
-    newcontext(classinst.name, classinst.handler, classinst.defaultdata)
+    # defaultdata - a dict that has the base line data needed for the context. This dict is saved and reloaded when the
+    # bot is restarted, merged onto the defaultdata dict. Thus, it's mainly used to setup some default data that should
+    # always exist.
+    newcontext(classinst.name, classinst.handler, classinst.defaultdata, classinst.description, classinst.commands)
     classinst.client = fakeclient
     classinst.mydata = contexts[classinst.name]["Data"]
     classinst.getglobal = getglobal
-    try:
+    try:  # If it has an updatewrapper, add it to the list of tasks to start
         if classinst.updatewrapper:
             taskmods.append(classinst)
     except AttributeError:
@@ -494,7 +637,48 @@ async def helphandler(command, message):
     return
 
 
-newcontext("help", helphandler, {})
+async def helpslashcommand(interaction: discord.Interaction, command: Optional[str]):
+    """Displays the general help for the bot. Use 'help <command>' for details
+    on the various options.
+
+    :type interaction: discord.Interaction
+    :type command: Optional[str]
+    :param interaction: the interaction which triggered this command.
+    :param command: Use 'invite' to get help on inviting the bot, or leave blank for general help.
+    """
+    if command == 'invite':
+        msg = "I can be invited to join a server by an administrator of the server using the following links\n"
+        msg += "\nNote that the link includes the permissions that I will be granted when joined.\n"
+        msg += "\nThe current link is: <" + invite + ">"
+        msg += "\nIf the bot is already in your server, re-inviting will NOT change the current permissions."
+        await interaction.response.send_message(msg, ephemeral=True)
+        return
+    elif command:  # Unknown command
+        await interaction.response.send_message("Unknown subcommand to get help for. If you want help for a command in"
+                                                " a context, please use '/<contextname> help <command> instead'",
+                                                ephemeral=True)
+        return
+    else:
+        msg = "PicartoWatch bot version " + str(version)
+        msg += "\nThe following commands are available for 'help': help, invite"
+        msg += "\nOnline help, and bug reporting are available at: <https://github.com/Silari/DBContext/wiki>"
+        msg += "\nThe complete changelog can be found at <" + changelogurl + ">"
+        msg += "\nPlease use '/<module> help' for help with specific modules"
+        msg += "\nThe following modules are available for use: " + ", ".join(contexts)
+        msg += "\nI listen to commands on any channel from users with the Manage Server permission."
+        msg += " Additionally, I will listen to commands from users with a role named " + str(managerolename)
+        await interaction.response.send_message(msg, ephemeral=True)
+
+
+def helpdescription():
+    return "Available subcommands: <none>, invite"
+
+
+newcontext("help", helphandler,
+           {}, helpdescription(),
+           {"help": {"description": "Provides general help for the bot. Each context has it's own specific"
+                                    " help command.",
+                     "callback": helpslashcommand}})
 
 defaultopts: Dict[str, Union[str, bool, None, object]] = {
     'Type': 'default',  # Type of announcement to use, default= embed with preview.
@@ -585,6 +769,8 @@ async def hasmanagerole(member):
     """
     # Second half of this is a shim for 1.0 to allow the old role name to work.
     return await hasrole(member, managerolename) or await hasrole(member, client.user.name)
+
+fakeclient.hasmanagerole = hasmanagerole
 
 
 async def renamerole(guild):
@@ -714,12 +900,12 @@ async def managehandler(command, message):
         if managerole:
             if message.guild.me.top_role.position < managerole.position:
                 msg += "\n**Bot does not** have permission to add/remove " + managerole.name + " due to role position."
-                msg += " Please ensure the " + managerole.name + " role is below the bots role."
+                msg += " Please ensure the " + managerole.name + " role is below the " + apitoken.botname + " role. "
         notifyrole = await getnotifyrole(message.guild)
         if notifyrole:
             if message.guild.me.top_role.position < notifyrole.position:
                 msg += "\n**Bot does not** have permission to add/remove " + notifyrole.name + " due to role position."
-                msg += " Please ensure the " + notifyrole.name + " role is below the bots role."
+                msg += " Please ensure the " + notifyrole.name + " role is below the " + apitoken.botname + " role. "
         if not myperms.mention_everyone:
             msg += "\nMissing 'Mention Everyone' perm. This permission is needed for the announcement notification " \
                    "feature. "
@@ -795,7 +981,8 @@ async def managehandler(command, message):
         await message.reply(msg, mention_author=False)
         return
     mydata = contexts['manage']['Data']  # Keep a reference to our module data
-    # notify off doesn't require any permissions. We can just turn it off.
+    # notify off is the only one of these that DOESNT require us to have permissions.
+    # We can just turn it off.
     if command[0] == 'notifyoff':
         # Turning off our notification feature for this server.
         # Remove the stored info from the server and message dicts
@@ -817,7 +1004,10 @@ async def managehandler(command, message):
             else:
                 msg += " The old reaction message is no longer needed and can be unpinned."
         # This will remove notifyrole if it has been set, no need to check
-        del mydata['notifyrole'][message.guild.id]
+        try:
+            del mydata['notifyrole'][message.guild.id]
+        except KeyError:
+            pass
         await message.reply(msg, mention_author=False)
         return
     # Set an existing role to be notified, rather than using a bot managed one. Also doesn't require permission.
@@ -901,7 +1091,8 @@ async def managehandler(command, message):
         sentmsg = await message.reply(
             "Notifications are enabled for this server. To receive a notification when stream announcements are set, "
             "please react to this message with :sound:. To stop receiving notifications, unreact the :sound: "
-            "reaction.\nIt is HIGHLY recommended this message be left pinned for users to find!", mention_author=False)
+            "reaction.\nIt is HIGHLY recommended this message be left pinned for users to find!\nYou may also use the "
+            "buttons on announcements to add/remove the notification role.", mention_author=False)
         # Step 4 - Add the server+msgid and msgid+roleid to the dicts.
         mydata['notifyserver'][message.guild.id] = sentmsg.id
         mydata['notifymsg'][sentmsg.id] = notifyrole.id
@@ -913,7 +1104,10 @@ async def managehandler(command, message):
             pass
         await sentmsg.add_reaction("\U0001f509")  # Unicode value for :sound:
         # This will remove notifyrole if it has been set, no need to check. Only ONE of them can be active.
-        del mydata['notifyrole'][message.guild.id]
+        try:
+            del mydata['notifyrole'][message.guild.id]
+        except KeyError:
+            pass
         return
     managerole = await getuserrole(message.guild)
     if not managerole:  # Manage role doesn't exist, make it now as we'll need it
@@ -1002,8 +1196,435 @@ async def managehandler(command, message):
         await message.reply(msg, mention_author=False)
 
 
-# Add our context, default data is to have two empty dicts: notifyserver and notifymsg
-newcontext("manage", managehandler, {'notifyserver': {}, 'notifymsg': {}, 'notifyrole': {}})
+class ManageCommands:
+    """Holds commands and enums related to the /help commands."""
+
+    # Time to wait for ephemeral messages
+    msgdelay = 60
+
+    def __init__(self):
+        self.managecommands = {"help": {"description": "Provides help for the manage context.",
+                                   "callback": self.help},
+                          "perms": {"description": "Runs checks for missing permissions needed for bot functionality.",
+                                    "callback": self.perms},
+                          "check": {"description": "Checks if the given user can use bot functions.",
+                                    "callback": self.check},
+                          "notifyoff": {"description": "Turns off the notifications on stream announcements.",
+                                        "callback": self.notifyoff},
+                          "notifyrole": {"description": "Sets a non-bot managed role to be mentioned on stream"
+                                                        " announcements",
+                                         "callback": self.notifyrole},
+                          "notifyon": {
+                              "description": "Turns on notifications on stream announcements and pins a message "
+                                             "for adding/removing the role.",
+                              "callback": self.notifyon},
+                          "setupchan": {
+                              "description": "Set permissions for the given channel to be used for announcements",
+                              "callback": self.setupchan},
+                          "add": {"description": "Adds the bot management role to the given user/users",
+                                  "callback": self.add},
+                          "remove": {"description": "Removes the bot management role to the given user/users",
+                                     "callback": self.remove}
+                          }
+
+    class HandlerEnums:
+        """Holds enums used by slash commands to limit inputs.
+
+        """
+        class HelpOptions(Enum):
+            add = 0
+            check = 1
+            notifyoff = 2
+            notifyon = 3
+            notifyrole = 4
+            perms = 5
+            remove = 6
+            setupchan = 7
+
+    async def help(self, interaction: discord.Interaction):  # , command: Optional[HandlerEnums.HelpOptions]):
+        """Provides help on the functions in the manage context.
+
+        :param interaction: Interaction that called this
+        :return:
+        """
+        # :param command: The command to get help for, blank for no command.
+        # if command:  # If user selected a command to learn about, find the command name from the Enum.
+        #     command = str(command).split('.')[1]
+        msg = "The following commands are available for manage. Separate multiple usernames with a single space.:"
+        msg += "\nperms: Has the bot check for missing permissions, and replies with any that are missing and what " \
+               "they are needed for."
+        msg += "\nnotifyon: Creates a message in the channel that users can react to to be granted a role that is " \
+               "@mentioned in announcements. Will also attempt to pin the message. Do not use when notifyrole is set!"
+        msg += "\nnotifyoff: Turns off the notification system. Users with the role will keep it, but announcements " \
+               "will not include the @mention and reactions to add/remove are ignored. Unsets the notifyrole option " \
+               "if set."
+        msg += "\nnotifyrole <role>: Sets an existing role to be announced, instead of the bot creating and managing " \
+               "one. Useful if you have another bot to manage roles. This function does not require the bot have " \
+               "role management permissions."
+        msg += "\nsetupchan <#channel>: Creates the user role to manage the bot, and adds an override to allow them " \
+               "to send messages in the given #channels. Each #channel MUST be a channel mention. "
+        msg += "\ncheck <username#0000>: Check if the given user has access to bot commands."
+        msg += "\nadd <username#0000>: Gives permission to a user to access bot commands. Note that bot " \
+               "accounts are ALWAYS ignored. "
+        msg += "\nremove <username#0000>: Revokes permission to a user to access bot commands. Note that " \
+               "server admins ALWAYS have bot access! "
+        if not interaction.channel.permissions_for(interaction.guild.me).manage_roles:
+            msg += "\n**Bot does not** have permission to manage user roles. Only help, check, notifyoff, notifyrole" \
+                   ", and perms commands will work. "
+            msg += "\nPlease manually add the 'manage roles' permission to make use of additional features."
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+
+    async def perms(self, interaction: discord.Interaction, channel: Optional[discord.TextChannel]):
+        """Checks that the bot has permission to use its various functions.
+
+        :param channel: Channel to check that bot can talk in for announcements, defaults to current channel.
+        :param interaction: Interaction that called this
+        :return:
+        """
+        # print("manage perms")
+        msg = ''
+        # Perms we need: Manage roles, mention_everyone, read_message_history, embed links
+        # manage messages (pinning), add reactions, read (view channels)+send messages
+        # Seems to be it for now. External Emojis MIGHT be needed for future use.
+        myperms = interaction.channel.permissions_for(interaction.guild.me)
+        if not channel:  # Default channel is the interaction channel
+            channel = interaction.channel
+        if not myperms.manage_roles:
+            msg += "\nMissing 'Manage Roles' perm. This permission is needed for the bot to manage announce " \
+                   "notifications and give users permission to use this bot. "
+        managerole = await getuserrole(interaction.guild)
+        if managerole:
+            if interaction.guild.me.top_role.position < managerole.position:
+                msg += "\n**Bot does not** have permission to add/remove " + managerole.name + " due to role position."
+                msg += " Please ensure the " + managerole.name + " role is below the " + apitoken.botname + " role. "
+        notifyrole = await getnotifyrole(interaction.guild)
+        if notifyrole:
+            if interaction.guild.me.top_role.position < notifyrole.position:
+                msg += "\n**Bot does not** have permission to add/remove " + notifyrole.name + " due to role position."
+                msg += " Please ensure the " + notifyrole.name + " role is below the " + apitoken.botname + " role. "
+        if not myperms.mention_everyone:
+            msg += "\nMissing 'Mention Everyone' perm. This permission is needed for the announcement notification " \
+                   "feature. "
+        if not myperms.read_message_history:
+            msg += "\nMissing 'Read Message History' perm. This permission is needed to find old announcements for " \
+                   "editing if the bot restarts. "
+        if not myperms.embed_links:
+            msg += "\nMissing 'Embed Links' perm. This permission is needed for announcements (except 'simple') to " \
+                   "display properly. "
+        if not myperms.manage_messages:
+            msg += "\nMissing 'Manage Messages' perm. This permission is needed for the notification system to pin " \
+                   "the message users react to to be notified. "
+        if not myperms.add_reactions:
+            msg += "\nMissing 'Add Reactions' perm. This permission is needed for the notification system to add the " \
+                   "reaction users use to be notified. "
+        # External emojis aren't used for anything - might be used for custom
+        # emoji for the reaction to add/remove notification role.
+        #        if not myperms.external_emojis :
+        #            msg += "\nMissing 'External Emojis' perm. This permission is needed for nothing right now."
+        # Check for send message permission. This MUST BE DONE LAST due to the PM if we can't send messages to the
+        # channel.
+        # If a channel was mentioned check send permissions there, unless it was the same channel the message was sent
+        # in.
+        if channel:  # This COULD be none if interaction wasn't in a channel. Shouldn't happen but JIC.
+            if not channel.permissions_for(interaction.guild.me).send_messages:
+                msg += "\nMissing 'Send Messages' perm for #" + channel.name + (". This permission is needed to send "
+                                                                                "messages to the channel. ")
+        if msg:  # We had at least one permission missing
+            await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+        else:
+            await interaction.response.send_message("Bot has no missing permissions.",
+                                             ephemeral=True,
+                                             delete_after=self.msgdelay)
+        return
+
+    async def check(self, interaction: discord.Interaction, member: discord.Member):
+        """
+
+        :param interaction: Interaction that called this
+        :param member: Guild member to check permissions for.
+        :return:
+        """
+        managerole = await getuserrole(interaction.guild)
+        if member:  # We should always have a member, this isn't optional.
+            if member.bot:  # Bots can not use commands.
+                await interaction.response.send_message("Given user is a bot, and will never be allowed permission.",
+                                                 ephemeral=True,
+                                                 delete_after=self.msgdelay)
+                return
+            elif member.guild_permissions.manage_guild:
+                # Anyone who can manage the guild can use the bot - they can invite bots.
+                await interaction.response.send_message("User has guild manage permission, and is authorized to use the bot.",
+                                                 ephemeral=True,
+                                                 delete_after=self.msgdelay)
+                return
+            elif managerole and await hasmanagerole(member):
+                # If they have the bot management role.
+                await interaction.response.send_message("User has the bot management role, and is authorized to use the bot.",
+                                                 ephemeral=True,
+                                                 delete_after=self.msgdelay)
+                return
+            else:
+                # If they have neither of the previous two they do not have permission.
+                await interaction.response.send_message("User does not have permission to use the bot.",
+                                                 ephemeral=True,
+                                                 delete_after=self.msgdelay)
+                return
+        else:
+            await interaction.response.send_message("User has the bot management role, and is authorized to use the bot.",
+                                             ephemeral=True,
+                                             delete_after=self.msgdelay)
+            return
+
+    async def notifyoff(self, interaction: discord.Interaction):
+        mydata = contexts['manage']['Data']  # Keep a reference to our module data
+        # notify off is the only one of these that DOESNT require us to have permissions.
+        # We can just turn it off.
+        # Turning off our notification feature for this server.
+        # Remove the stored info from the server and message dicts
+        unpinned = False
+        msg = "Notification system has been disabled."
+        if interaction.guild_id in mydata['notifyserver']:  # Is the managed notify on?
+            try:
+                foundmsg = await findmsg(interaction.guild,
+                                         mydata['notifyserver'][interaction.guild_id],
+                                         interaction.channel)
+                await foundmsg.unpin()
+                unpinned = True
+            except discord.Forbidden:
+                pass  # If we don't have permission to unpin, ignore it.
+            except Exception as e:
+                print("notifyoff", repr(e))  # For debugging, log any other error
+            # Remove the dict entries for this server.
+            mydata["notifymsg"].pop(mydata['notifyserver'].pop(interaction.guild_id))
+            if unpinned:
+                msg += " I have also attempted to unpin the old reaction message."
+            else:
+                msg += " The old reaction message is no longer needed and can be unpinned."
+        # This will remove notifyrole if it has been set, no need to check
+        if interaction.guild_id in mydata['notifyrole']:
+            msg += " The notification role has been unset."
+            try:
+                del mydata['notifyrole'][interaction.guild_id]
+            except KeyError:
+                pass
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+        return
+
+    async def notifyrole(self, interaction: discord.Interaction, newrole: discord.Role):
+        mydata = contexts['manage']['Data']  # Keep a reference to our module data
+        if newrole:  # We don't need to do any searching or anything for this, we HAVE a role that should be good.
+            # print("Given: ", newrole)
+            # @everyone and @here don't work right, so we don't allow them.
+            if newrole.name in ('@everyone', '@here'):
+                await interaction.response.send_message("You can not notify the everyone or here roles due to Discord "
+                                                 "limitations. Please choose a different role.",
+                                                 ephemeral=True,
+                                                 delete_after=self.msgdelay)
+                return
+            if newrole:
+                # Save the role id in our data area under the guild id
+                mydata['notifyrole'][interaction.guild_id] = newrole.id
+                msg = "Notification role set to " + newrole.name + ". Announcements will now mention this role."
+                await interaction.response.send_message(msg,
+                                                        ephemeral=True,
+                                                        delete_after=self.msgdelay,
+                                                        view=SendToChannel(msg,None))
+        else:  # This shouldn't happen since Discord enforces providing a role.
+            msg = "Unable to find the given role. Either correct the name or provide a mention to the role (@RoleName)"
+            await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+        return
+
+    async def notifyon(self, interaction: discord.Interaction):
+        mydata = contexts['manage']['Data']  # Keep a reference to our module data
+        # We need to have role management permissions to do any of this.
+        if not interaction.channel.permissions_for(interaction.guild.me).manage_roles:
+            await interaction.response.send_message(
+                "Bot does not have permission to manage user roles, requested command can not be completed without it.",
+                ephemeral=True, delete_after=self.msgdelay)
+            return  # We can't do any of the following things without it, so quit
+        # Step 1 - Find/Create the role
+        notifyrole = await getnotifyrole(interaction.guild)
+        if not notifyrole:  # We couldn't find the role, make it
+            notifyrole = await makenotifyrole(interaction.guild)
+        if not notifyrole:
+            # We couldn't find or make the role. We already checked for permissions, so this shouldn't happen, but JIC
+            await interaction.response.send_message(
+                "Unable to create/find the necessary role. Please ensure the bot has the manage_roles permission.",
+                ephemeral=True,
+                delete_after=self.msgdelay)
+            return
+        # Check if role is assignable by the bot.
+        if interaction.guild.me.top_role.position < notifyrole.position:
+            await interaction.response.send_message("Notify role position is higher than the bots highest role. Please move"
+                                             " the notify role below the " + interaction.guild.me.top_role.name +
+                                             " role.",
+                                             ephemeral=True,
+                                             delete_after=self.msgdelay)
+            return
+        # Step 2 - Check if we already are on
+        if interaction.guild_id in mydata['notifyserver']:  # Is notify on?
+            msg = "Notifications have already been enabled on this server."
+            savedmsgid = mydata['notifyserver'][interaction.guild_id]
+            foundmsg = await findmsg(interaction.guild, savedmsgid, interaction.channel)
+            if foundmsg:  # The old reaction message still exists.
+                msg += " Reaction message is at " + foundmsg.jump_url
+                # Check if the notifyrole id has changed. Might happen if recreated by a user or the bot.
+                if notifyrole.id != mydata['notifymsg'][savedmsgid]:
+                    mydata['notifymsg'][savedmsgid] = notifyrole.id
+                    msg += " . The stored notify role ID did not match the found role. It has been reset."
+                await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+                if not foundmsg.pinned:  # Try to pin the message if it isn't.
+                    try:
+                        await foundmsg.pin()
+                    except discord.Forbidden:
+                        pass
+                return
+            # Notify system should be on, but the message is gone, so we're going to reactivate it.
+            try:  # At this point we need to clean up the old remnants, cause we're going to redo everything.
+                del mydata['notifyserver'][interaction.guild_id]  # This one must exist, we used it above.
+                # This one SHOULD exist, and needs to be removed as that ID is invalid and we don't want to leave junk.
+                del mydata['notifymsg'][savedmsgid]
+            except KeyError:
+                pass
+        # If notifyon was already on, the message was removed (or unfindable) so we just treat it like it was off.
+        # Step 3 - Send message to channel with info, request it be pinned/try to pin it?
+        sentmsg = await interaction.channel.send(
+            "Notifications are enabled for this server. To receive a notification when stream announcements are set, "
+            "please react to this message with :sound:. To stop receiving notifications, unreact the :sound: "
+            "reaction.\nIt is HIGHLY recommended this message be left pinned for users to find!")
+        # Step 4 - Add the server+msgid and msgid+roleid to the dicts.
+        mydata['notifyserver'][interaction.guild_id] = sentmsg.id
+        mydata['notifymsg'][sentmsg.id] = notifyrole.id
+        # Step 5 - Add the :sound: reaction to the message to make it easier to
+        # react to it for others. One click, no mistakes.
+        try:
+            await sentmsg.pin()  # Try to pin the message
+        except discord.Forbidden:  # Possibly a permission failure here, if so ignore.
+            pass
+        await sentmsg.add_reaction("\U0001f509")  # Unicode value for :sound:
+        # This will remove notifyrole if it has been set. Only ONE of them can be active.
+        if interaction.guild_id in mydata['notifyrole']:
+            del mydata['notifyrole'][interaction.guild_id]
+        await interaction.response.send_message("Notification system enabled!",
+                                                ephemeral=True,
+                                                delete_after=self.msgdelay)
+        return
+
+    async def setupchan(self, interaction: discord.Interaction, channel: discord.TextChannel):
+        if not channel.permissions_for(interaction.guild.me).manage_roles:
+            await interaction.response.send_message(
+                "Bot does not have permission to manage user roles, requested command can not be completed without it.",
+                ephemeral=True, delete_after=self.msgdelay)
+            return  # We can't do any of the following things without it, so quit
+        managerole = await getuserrole(interaction.guild)
+        if not managerole:  # Manage role doesn't exist, make it now as we'll need it
+            managerole = await makeuserrole(interaction.guild)
+        if not managerole:  # This isn't due to permissions issues, as we check that above
+            await interaction.response.send_message("Unable to obtain/create the necessary role for an unknown reason.",
+                                                    ephemeral=True,
+                                                    delete_after=self.msgdelay)
+            return
+        if channel:  # We can't do anything if they didn't include a channel. Should ALWAYS be present now.
+            # We need to set this channel to be talkable by anyone with the role.
+            # Validate the mentions are in this guild. Shouldn't be possible?, but JIC we're still gonna check it.
+            if channel.guild != interaction.guild:
+                await interaction.response.send_message("I could not find " + channel.name + " in this server.",
+                                                        ephemeral=True,
+                                                        delete_after=self.msgdelay)
+            msg = channel.name + ": "
+            # Set everyone role to be able to read but not send in the channel
+            try:
+                await channel.set_permissions(interaction.guild.default_role, read_messages=True, send_messages=False)
+                msg += "@everyone role set to read only permission for channel."
+            except discord.Forbidden:
+                msg += "Failed to set read only permission for @everyone role for channel."
+            newoverride = discord.PermissionOverwrite(**{"send_messages": True, "read_messages": True})
+            # Set the bot user to be able to read and send messages
+            try:
+                await channel.set_permissions(interaction.guild.me, overwrite=newoverride,
+                                              reason="Added read/send permissions to bot")
+                msg += "\nRead+Write permissions given to bot for channel."
+            except discord.Forbidden:
+                msg += "\nFailed to give read+write permissions to bot for channel."
+            # Set the manage role to be able to read and send messages
+            try:
+                await channel.set_permissions(managerole, overwrite=newoverride,
+                                              reason="Added read/send message permission to bot user role.")
+                msg += "\nRead+Send permissions given to role for channel " + channel.name
+            except discord.Forbidden:
+                msg += "\nFailed to give read+write permissions to management role for channel."
+            await interaction.response.send_message(msg,
+                                                    ephemeral=True,
+                                                    delete_after=self.msgdelay)
+            return
+        await interaction.response.send_message("A channel to setup was not provided! somehow...",
+                                                ephemeral=True,
+                                                delete_after=self.msgdelay)
+        return
+
+    async def add(self, interaction: discord.Interaction, member: discord.Member):
+        if not interaction.channel.permissions_for(interaction.guild.me).manage_roles:
+            await interaction.response.send_message(
+                "Bot does not have permission to manage user roles, requested command can not be completed without it.",
+                ephemeral=True, delete_after=self.msgdelay)
+            return  # We can't do any of the following things without it, so quit
+        managerole = await getuserrole(interaction.guild)
+        if not managerole:  # Manage role doesn't exist, make it now as we'll need it
+            managerole = await makeuserrole(interaction.guild)
+        if not managerole:  # This isn't due to permissions issues, as we check that above
+            await interaction.response.send_message("Unable to obtain/create the necessary role for an unknown reason.",
+                                             ephemeral=True,
+                                             delete_after=self.msgdelay)
+            return
+        added = set()
+        msg = ""
+        notfound = set()
+        if member:
+            await member.add_roles(managerole, reason="Added user to bot management.")
+            added.add(member.name)
+        else:
+            # Should never happen.
+            notfound.add(member.name)
+        if added:
+            msg += "Ok, the following users were given the role for bot commands: " + ", ".join(added)
+        if not msg:
+            msg += "Unable to add any users due to unknown error."
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+
+    async def remove(self, interaction: discord.Interaction, member: discord.Member):
+        managerole = await getuserrole(interaction.guild)
+        if not managerole:  # Manage role doesn't exist, make it now as we'll need it
+            managerole = await makeuserrole(interaction.guild)
+        if not managerole:  # This isn't due to permissions issues, as we check that above
+            await interaction.response.send_message("Unable to obtain/create the necessary role for an unknown reason.",
+                                             ephemeral=True,
+                                             delete_after=self.msgdelay)
+            return
+        removed = set()
+        msg = ""
+        notfound = set()
+        if member:
+            await member.remove_roles(managerole, reason="Removed user from bot management.")
+            removed.add(member.name)
+        else:
+            notfound.add(member.name)
+        if removed:
+            msg += "Ok, removed the bot command role from the following users: " + ", ".join(removed)
+        if notfound:
+            msg += "\nThe following users were not found: " + ", ".join(notfound)
+        if not msg:
+            msg += "Unable to remove roles from any users due to unknown error."
+        await interaction.response.send_message(msg, ephemeral=True, delete_after=self.msgdelay)
+
+
+
+managecommands = ManageCommands()  # Make an instance of our help commands class.
+
+# Add our context, default data is to have three empty dicts, detailed below.
+newcontext("manage", managehandler,
+           {'notifyserver': {}, 'notifymsg': {}, 'notifyrole': {}},
+           "Has commands for managing the bots permissions and the notification system.",
+           managecommands.managecommands)
 # Notifyserver contains: guild.id as a key, and the id of the message to react to.
 # notifymsg contains: react message.id as a key, and the role.id.
 # notifyrole contains: guild.id as a key, and the role.id
@@ -1025,7 +1646,7 @@ async def debughandler(command, message):
         await message.channel.send(msg)
         return
     # Unsafe commands go down here
-    if not (message.author.id == 273076937474441218):
+    if not (message.author.id == apitoken.devuser):
         # print("Not GP, do not run",command[1:])
         await message.channel.send("Sorry, this command is limited to the bot developer.")
         return
@@ -1119,9 +1740,62 @@ async def debughandler(command, message):
         presencemessage = " ".join(command[1:])
         await set_presence()
 
+class DebugCommands:
+    """Holds commands and enums related to the /help commands."""
 
-newcontext("debug", debughandler, {})
+    # Time to wait for ephemeral messages
+    msgdelay = 60
 
+    # TODO Add more commands to this.
+    def __init__(self):
+        self.debugcommands = {"quit": {"description": "Provides help for the manage context.",
+                                        "callback": self.quit},
+                               "restart": {"description": "Restarts the bot.",
+                                           "callback": self.restart}}
+
+    # elif command[0] in ('quit', 'restart'):
+    #     global calledstop
+    #     if command[0] == 'quit':
+    #         calledstop = True
+    #     else:
+    #         calledstop = 'restart'  # Still counts as True for testing
+    #     await message.channel.send("Client exiting. Goodbye.")
+    #     await client.close()
+
+    async def quit(self, interaction: discord.Interaction):
+        global calledstop
+        calledstop = True
+        await interaction.response.send_message("Ok, bot is quitting.",
+                                                ephemeral=True,
+                                                delete_after=self.msgdelay)
+        await client.close()
+
+    async def restart(self, interaction: discord.Interaction):
+        global calledstop
+        calledstop = 'restart'
+        await interaction.response.send_message("Ok, bot is restarting.",
+                                                ephemeral=True,
+                                                delete_after=self.msgdelay)
+        await client.close()
+
+
+debugcommands = DebugCommands()
+
+
+newcontext("debug", debughandler, {}, None, {})
+
+
+debuggroup = discord.app_commands.Group(name="debug", description="Holds debug commands - bot devuser use only!",
+                                        guild_ids = [apitoken.devserver,])
+debuggroup.interaction_check = checkdebugperms  # Should only allow commands from those with proper permissions/roles.
+for debcomname, thiscommand in debugcommands.debugcommands.items():
+    # print(debcomname, thiscommand["description"], thiscommand["callback"])
+    newdebcom = discord.app_commands.Command(name=debcomname,
+                                          description=thiscommand["description"],
+                                          callback=thiscommand["callback"],
+                                          parent=debuggroup)
+    debuggroup.add_command(newdebcom)
+client.tree.add_command(debuggroup)
 
 async def sendall(msg):
     """Sends a message to all servers. Generally used when updates are pushed."""
@@ -1410,13 +2084,13 @@ async def on_ready():
 # Old method to close tasks and log out. Only used in case of SIGTERM.
 def closebot():
     myloop.run_until_complete(client.close())
-    for t in asyncio.Task.all_tasks(loop=client.loop):
+    for t in asyncio.all_tasks(loop=client.loop):
         if t.done():
             t.exception()
             continue
         t.cancel()
         try:
-            myloop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
+            myloop.run_until_complete(asyncio.wait_for(t, 5))
             t.exception()
         except asyncio.InvalidStateError:
             pass
@@ -1430,13 +2104,13 @@ def closebot():
 # Logs the bot out and ends all tasks
 async def aclosebot():
     await client.close()
-    for t in asyncio.Task.all_tasks(loop=client.loop):
+    for t in asyncio.all_tasks(loop=client.loop):
         if t.done():  # Task is finished, we can skip it
             # t.exception() #This would show the exception, but we don't care
             continue
         t.cancel()  # Cancels the task by raising CancelledError
         try:
-            myloop.run_until_complete(asyncio.wait_for(t, 5, loop=client.loop))
+            myloop.run_until_complete(asyncio.wait_for(t, 5))
             t.exception()
         except asyncio.InvalidStateError:
             pass
@@ -1454,6 +2128,7 @@ async def savecontexts():
     # trouble to try and track that than to just let it go.
     # A simpler method may be to hash the buffer and compare that, then save if different?
     # Pickle-ing the exact same data can load to different results, so that doesn't work.
+    # print(datetime.datetime.now()) # debug for when savecontexts wasn't being called.
     try:
         # Copy the current contexts into a new dictionary
         contdata = copy.deepcopy(contexts)
@@ -1567,6 +2242,7 @@ def loadtemps():
 # It's recommended to send SIGINT instead - systemd can do this if you're on
 # Linux and using it to start/stop the bot. Ctrl+C also sends SIGINT.
 # SIGINT is handled automatically by Python and works extremely well.
+# noinspection PyTypeChecker
 signal.signal(signal.SIGTERM, closebot)
 
 
@@ -1588,15 +2264,10 @@ async def startbot():
     """Handles starting the bot, making the session, and starting tasks."""
     loadtemps()  # Load any saved temporary data into modules that have it
     myconn = await makesession()  # The shared aiohttp clientsession
-    # Saves our context data periodically
-    tasks.append(client.loop.create_task(savetask()))
     # Start our context modules' updatewrapper task, if they had one when adding.
-    for modname in taskmods:
-        # print("Starting task for:",modname.name)
-        # This starts the modules updatewrapper and passes the connection to it.
-        tasks.append(client.loop.create_task(modname.updatewrapper(myconn)))
     try:
         # Starts the discord.py client with our discord token.
+        client.myconn = myconn
         await client.start(token)
     # On various kinds of errors, close our background tasks, the bot, and the loop
     except SystemExit:
@@ -1649,7 +2320,7 @@ def startupwrapper():
             g.write(buff)
         # Close our ClientSession properly to avoid an annoying message.
         # client.loop.run_until_complete(myconn.close())
-        client.loop.close()  # Ensure loop is closed
+        # client.loop.close()  # Ensure loop is closed
     # Did someone use the debug quit option? If not, raise an error
     if not calledstop:
         raise Exception("Bot ended without being explicitly stopped!")
@@ -1662,63 +2333,6 @@ def startupwrapper():
             # Log that the quit was requested.
             print("Called quit")
 
-
-# This section is needed for Python 3.7 to 3.7.3 only.
-import ssl
-import sys
-
-SSL_PROTOCOLS = (asyncio.sslproto.SSLProtocol,)
-
-
-def ignore_aiohttp_ssl_error(loop):
-    """Ignore aiohttp #3535 / cpython #13548 issue with SSL data after close
-
-    There is an issue in Python 3.7 up to 3.7.3 that over-reports a
-    ssl.SSLError fatal error (ssl.SSLError: [SSL: KRB5_S_INIT] application data
-    after close notify (_ssl.c:2609)) after we are already done with the
-    connection. See GitHub issues aio-libs/aiohttp#3535 and
-    python/cpython#13548.
-
-    Given a loop, this sets up an exception handler that ignores this specific
-    exception, but passes everything else on to the previous exception handler
-    this one replaces.
-
-    Checks for fixed Python versions, disabling itself when running on 3.7.4+
-    or 3.8.
-
-    """
-    if sys.version_info >= (3, 7, 4):
-        return
-
-    orig_handler = loop.get_exception_handler()
-
-    def ignore_ssl_error(lop, context):
-        if context.get("message") in {
-            "SSL error in data received",
-            "Fatal error on transport",
-        }:
-            # validate we have the right exception, transport and protocol
-            exception = context.get('exception')
-            protocol = context.get('protocol')
-            if (
-                    isinstance(exception, ssl.SSLError)
-                    and exception.reason == 'KRB5_S_INIT'
-                    and isinstance(protocol, SSL_PROTOCOLS)
-            ):
-                # print("Ignored bad exception")
-                if lop.get_debug():
-                    asyncio.log.logger.debug('Ignoring asyncio SSL KRB5_S_INIT error')
-                return
-        if orig_handler is not None:
-            orig_handler(lop, context)
-        else:
-            lop.default_exception_handler(context)
-
-    loop.set_exception_handler(ignore_ssl_error)
-
-
-ignore_aiohttp_ssl_error(myloop)
-# END 3.7 to 3.7.3 only section
 
 # If the module was run, call our startup wrapper
 if __name__ == "__main__":

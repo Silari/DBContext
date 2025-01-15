@@ -33,8 +33,6 @@ def getstream(recordid):
         return False
 
 
-# TODO May want to make this replace Gaming with Private if Private is enabled. Happens rarely but useful if it does.
-#  'private' was the key for this, is it still?
 class PicartoRecord(basecontext.StreamRecord):
 
     __slots__ = []
@@ -61,9 +59,11 @@ class PicartoRecord(basecontext.StreamRecord):
             else:
                 self.multistream = []
             self.online = recdict['online']
-            # TODO Sometimes time is None, presumably if they have never streamed. This fails here.
-            self.time = datetime.datetime.strptime(''.join(recdict['last_live']), '%Y-%m-%d %H:%M:%S')\
-                .replace(tzinfo=datetime.timezone.utc)
+            try:
+                self.time = datetime.datetime.strptime(''.join(recdict['last_live']), '%Y-%m-%d %H:%M:%S')\
+                    .replace(tzinfo=datetime.timezone.utc)
+            except TypeError:
+                self.time = None
             self.viewers_total = recdict['viewers_total']
         else:
             # Non detailed records omit the time and avatar URLs, but we can make those easily enough.
@@ -103,7 +103,10 @@ class PicartoRecord(basecontext.StreamRecord):
             viewers = "Viewers: " + str(self.viewers)
         else:
             # If this were used on a non-detailed record, it would be the time the record was created.
-            lastonline = "Last online: " + self.time.strftime("%m/%d/%Y")
+            if self.time:
+                lastonline = "Last online: " + self.time.strftime("%m/%d/%Y")
+            else:
+                lastonline = "Never online"
             viewers = "Total Views: " + str(self.total_views[1])
         myembed.add_field(name=lastonline, value=viewers, inline=True)
         if showprev:

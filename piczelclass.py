@@ -37,7 +37,7 @@ def getstream(recordid):
         detchan = json.loads(buff)
         record = detchan['data'][0]
         # If user is in a multistream detchan may have multiple records - save them
-        if record["in_multi"]:
+        if False or record["in_multi"]:  # This is no longer present
             record["DBMulti"] = detchan['data']
         return record
     except (KeyError, Exception):
@@ -53,13 +53,19 @@ class PiczelRecord(basecontext.StreamRecord):
     # values2 = ['DBMulti', 'adult', 'banner', 'banner_link', 'description', 'follower_count', 'id', 'in_multi',
     #            'isPrivate?', 'live', 'live_since', 'offline_image', 'parent_streamer', 'preview', 'recordings',
     #            'rendered_description', 'settings', 'slug', 'tags', 'title', 'user', 'username', 'viewers']
+    # NEWVALUES = {'id', 'title', 'live', 'live_since', 'slug', 'offline_image', 'preview', 'adult', 'user',
+    # 'username', 'viewers', 'is_private'}
+    # DETAILED = {'id', 'title', 'description', 'rendered_description', 'follower_count', 'live', 'live_since',
+    # 'isPrivate?', 'is_private', 'slug', 'offline_image', 'banner', 'banner_link', 'preview', 'adult', 'in_multi',
+    # 'parent_streamer', 'settings', 'viewers', 'username', 'tags', 'bitrate', 'has_b_frames', 'resolution',
+    # 'keyframe_interval', 'framerate', 'video_codec', 'audio_codec', 'user', 'recordings'}
 
     upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
     streamurl = "http://piczel.tv/watch/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(record))
 
     def __init__(self, recdict, detailed=False):
-        if not recdict['in_multi']:  # Non multi-stream records are identical whether detailed or not.
-            detailed = True
+        if 'in_multi' in recdict:  # Detailed streams have the in_multi key present.
+            detailed = True  # Detailed is used for multi-stream data and viewers_total.
         super().__init__(recdict, detailed)
         self.gaming = False
         self.avatar = recdict['user']['avatar']['url']
@@ -73,8 +79,9 @@ class PiczelRecord(basecontext.StreamRecord):
                 .replace(tzinfo=datetime.timezone.utc)
         else:
             self.time = None
-        self.viewers_total = recdict['follower_count']
-        if recdict['in_multi']:  # Is this a multistream?
+        if 'follower_count' in recdict:
+            self.viewers_total = recdict['follower_count']
+        if 'in_multi' in recdict and recdict['in_multi']:  # Is this a multistream?
             if detailed:  # We need to setup our multistream data. Only available in a detailed record.
                 multi = []
                 for stream in recdict['DBMulti'][1:]:  # First record is a copy of our record, ignore that.
@@ -93,7 +100,7 @@ class PiczelRecord(basecontext.StreamRecord):
 
     def update(self, newdict):
         super().update(newdict)
-        if newdict['in_multi']:
+        if 'in_multi' in newdict and newdict['in_multi']:
             self.multistream = [True]
         else:
             self.multistream = []
@@ -200,6 +207,8 @@ class PiczelContext(basecontext.APIContext):
                     # The other records in data are members of a multistream with our target stream
                     # This is useful info for the detailed embed.
                     record["DBMulti"] = detchan['data']
+            else:
+                return detchan  # Whatever we got, pass it back up the chain
         except Exception as e:  # Any errors, we can't return the record.
             # Log the error - there really shouldn't be any, as the basecontext
             # function should catch errors with the call and return False, which

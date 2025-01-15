@@ -17,7 +17,7 @@ lastupdate = basecontext.Updated()  # Class that tracks if update succeeded - em
 
 
 class TemplateContext(basecontext.APIContext):
-    defaultname = "template"  # This is used to name this context and is the command
+    defaultname = "template"  # This is used to name this context and is the command. No loaded context can share a name
     # URL for going to watch the stream, gets called as self.streamurl.format(await self.getrecordid(record))
     streamurl = "http://www.example.com/{0}"
     # URL to call to update the list of online streams, used by updateparsed
@@ -34,6 +34,19 @@ class TemplateContext(basecontext.APIContext):
         self.parsed = parsed  # Removing any of this isn't recommended.
         self.lastupdate = lastupdate  # Tracks if last API update was successful.
         # Adding stuff below here is fine, obviously.
+
+    # These two items are to support slash commands used with this context.
+    # Contains the description of the parent command - all other commands will be a subcommand of this parent command.
+    @property
+    def description(self):
+        return ""
+
+    # Contains a dict of name: the name of the command, description: description of the command, callback: the async
+    # function to call when the command is invoked.
+    # If this dictionary is empty, no slash commands will be created.
+    @property
+    def commands(self):
+        return {}
 
     async def savedata(self):
         """Used by dbcontext to get temporary data from the class prior to restart. If temp data is found on start, it

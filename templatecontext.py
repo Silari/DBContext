@@ -14,20 +14,30 @@
 # import json #Useful for interpreting json from API requests.
 import asyncio  # Useful for asyncio.sleep - do NOT use the time.sleep method!
 
-name = "template"  # This must be a unique name, used to identify this context
+import discord
 
-client = None  # Is filled by discordbot with a handle to the client instance
+name = "template"  # This must be a unique name, used to identify this context and to register slash commands if used.
+
+client: discord.Client = None  # Is filled by discordbot with a handle to the client instance
 # Do not use this to perform potentially disruptive actions. It is mostly used
 # for client.send_message and such in the currently available contexts.
 
 mydata = None  # Is filled by discordbot with a handle to the contexts stored data
+
 # This is a dict that is saved and reloaded by dbcontext. Any item saved in this
 # should be safe for pickling/unpickling via the pickle module.
 # Any data that does not need to be persistent across restarts does NOT need to
 # be contained here - this is just an easy place to store persistent data.
-
 defaultdata = {"AnnounceDict": {}, "Servers": {}}
 
+# These two items are to support slash commands used with this context.
+# Contains the description of the parent command - all other commands will be a subcommand of this parent command.
+description = ""
+
+# Contains a dict of name: the name of the command, description: description of the command, callback: the async
+# function to call when the command is invoked.
+# If this dictionary is empty, no slash commands will be created.
+commands = {}
 
 # This is merged into the dict that dbcontext creates for this context on load,
 # which is then stored in the mydata variable above.
@@ -66,6 +76,8 @@ defaultdata = {"AnnounceDict": {}, "Servers": {}}
 
 # This is started as a background task by dbcontext. It can be empty but should
 # exist.
+
+
 async def updatewrapper():
     """Sets a function to be run continiously ever 60 seconds until the bot is closed."""
     # Data validation should go here if needed for your mydata dict. This is
