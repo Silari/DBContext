@@ -21,6 +21,7 @@ import asyncio  # Useful for asyncio.sleep - do NOT use the time.sleep method!
 import traceback  # For exception finding.
 import datetime  # For stream duration calculation.
 import time  # Used to add a time stamp to images to avoid caches.
+from aiohttp import ClientOSError
 
 msgdelay = 60
 
@@ -1007,6 +1008,12 @@ class APIContext:
             except asyncio.CancelledError:
                 # Task was cancelled, stop execution.
                 return
+            except ClientOSError:
+                # This is typically a connection error (conn reset by peer) and temporary. No need to log it.
+                pass
+            except discord.DiscordServerError:
+                # Error communicating with Discord. It may be down, or a temporary glitch. Doesn't need logging here.
+                pass
             # Error handling goes here. For now, we just print the error to console
             # then continue. We do NOT ignore BaseException errors - those stop us
             # since we're likely being shut down.
