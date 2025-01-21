@@ -79,8 +79,9 @@ Added notifyrole option in manage, to choose what role gets mentioned in stream 
 taskmods = []
 tasks = []
 myloop = asyncio.get_event_loop()
-intents = discord.Intents.default()
-intents.message_content = True
+intents = discord.Intents(emojis=True, messages=True, guild_reactions=True, guilds=True, message_content=True)
+intents.members = True  # Temporary until the old command style messages are removed, needed for manage to work.
+
 # Invite link for the PicartoBot. Allows adding to a server by a server admin.
 # This is the official version of the bot, running the latest stable release.
 invite = "https://discordapp.com/api/oauth2/authorize?client_id=553335277704445953&scope=bot&permissions=268921920"
@@ -151,12 +152,19 @@ async def resolveuser(userid, guild=None):
     elif userid.startswith('<@'):
         userid = userid[2:-1]
     if guild:
-        # TODO Does this actually still work without intents??? No, no it doesnt. frick.
-        #  Less of an issue with slash commands taking the member instance directly.
-        if '#' in userid:
+        if '#' in userid:  # Old style discriminator name. No one should have this anymore, except maybe bots.
             founduser = discord.utils.find(lambda m: str(m) == userid, guild.members)
         else:
             founduser = discord.utils.find(lambda m: str(m.id) == userid, guild.members)
+            # This searches for the user id in the server, if we weren't able to find the user above (we can't have)
+            if not founduser:
+                try:
+                    foundusers = await guild.query_members(user_ids=[int(userid)])
+                    if foundusers:  # If this fails then no users found
+                        # There'd be at most 1 user since we're searching by ID.
+                        founduser = foundusers[0]
+                except ValueError:  # userid was not a userid. It always should be at this point.
+                    pass
     else:
         if '#' in userid:
             founduser = discord.utils.find(lambda m: str(m) == userid, client.users)
