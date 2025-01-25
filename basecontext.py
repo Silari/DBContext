@@ -2121,7 +2121,7 @@ class APIContext:
             msg = record + "is not in your list of watched streams. Check spelling and capitalization and " \
                            "try again. "
             return msg
-        if len(command) == 0:  # No options given, just show current options
+        if len(command) == 0 and channel is None:  # No options given, just show current options
             msg = "No overrides exist for the given stream; all options will default to the server wide settings."
             try:
                 options = {}
@@ -2147,7 +2147,10 @@ class APIContext:
                        "options have been set.")
                 return msg
             await self.setstreamoption(guildid, 'Channel', record, channel.id)
-            setopt.add(channel.name)
+            if not channel.permissions_for(channel.guild.me).send_messages:
+                msg += "\nI **do not** have permission to send messages in that channel! Announcements will fail " \
+                       "until permission is granted. "
+            setopt.add('Channel: ' + channel.name)
         for newopt in command:
             # Valid options are all lower case, or channel mentions, which have no
             # letters in them.

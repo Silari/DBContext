@@ -156,7 +156,7 @@ async def resolveuser(userid, guild=None):
             founduser = discord.utils.find(lambda m: str(m) == userid, guild.members)
         else:
             founduser = discord.utils.find(lambda m: str(m.id) == userid, guild.members)
-            # This searches for the user id in the server, if we weren't able to find the user above (we can't have)
+            # This searches for the user id in the server, if we weren't able to find the user above (we didn't)
             if not founduser:
                 try:
                     foundusers = await guild.query_members(user_ids=[int(userid)])
@@ -464,7 +464,6 @@ def newcontext(name, handlefunc, data, description, commands: dict):
     if description:
         # print("371", name, description)
         newgroup = discord.app_commands.Group(name=name, description=description)
-        # TODO test this limits people properly. Looks to be working.
         newgroup.interaction_check = checkperms  # Should only allow commands from those with proper permissions/roles.
         for comname, command in commands.items():
             # print(comname, command["description"], command["callback"])
