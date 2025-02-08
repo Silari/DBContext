@@ -48,7 +48,7 @@ class PiczelRecord(basecontext.StreamRecord):
 
     __slots__ = []
 
-    values = ['adult', 'title', 'viewers']
+    values = ['adult', 'title']
     # Piczel keys for online/offline streams. DBMulti is only present if in_multi is True. Contains addl PiczelRecords
     # values2 = ['DBMulti', 'adult', 'banner', 'banner_link', 'description', 'follower_count', 'id', 'in_multi',
     #            'isPrivate?', 'live', 'live_since', 'offline_image', 'parent_streamer', 'preview', 'recordings',
@@ -59,8 +59,14 @@ class PiczelRecord(basecontext.StreamRecord):
     # 'isPrivate?', 'is_private', 'slug', 'offline_image', 'banner', 'banner_link', 'preview', 'adult', 'in_multi',
     # 'parent_streamer', 'settings', 'viewers', 'username', 'tags', 'bitrate', 'has_b_frames', 'resolution',
     # 'keyframe_interval', 'framerate', 'video_codec', 'audio_codec', 'user', 'recordings'}
+    # NEWNEWVALUES = {'id', 'title', 'live', 'live_since', 'slug', 'offline_image', 'preview', 'adult', 'username',
+    # 'user'}
+    # NEWDETAILED = {'id', 'title', 'description', 'rendered_description', 'follower_count', 'live', 'live_since',
+    # 'isPrivate?', 'is_private', 'slug', 'offline_image', 'banner', 'banner_link', 'preview', 'adult', 'in_multi',
+    # 'parent_streamer', 'settings', 'viewers', 'username', 'tags', 'offline_peers', 'bitrate', 'has_b_frames',
+    # 'resolution', 'keyframe_interval', 'framerate', 'video_codec', 'audio_codec', 'user', 'recordings', 'DBMulti'}
 
-    upvalues = ['adult', 'viewers']  # Manually update multistream. No other changes.
+    upvalues = ['adult',]
     streamurl = "http://piczel.tv/watch/{0}"  # Gets called as self.streamurl.format(await self.getrecordid(record))
 
     def __init__(self, recdict, detailed=False):
@@ -159,7 +165,7 @@ class PiczelRecord(basecontext.StreamRecord):
                           value="Followers: " + str(self.total_views[1]), inline=True)
         if self.online:
             myembed.add_field(name=await self.streammsg(None),
-                              value="Viewers: " + str(self.viewers))
+                              value="")  # Viewers: " + str(self.viewers))
         if showprev:
             myembed.set_image(url=self.preview_url)
         # We've had issues with the avatar location changing. If it does again,
@@ -168,6 +174,33 @@ class PiczelRecord(basecontext.StreamRecord):
             myembed.set_thumbnail(url=self.avatar)
         return myembed
 
+    async def simpembed(self, showtime=None, offline=False):
+        """The embed used by the noprev message type. This is general information about the stream, but not everything.
+        Users can get a more detailed version using the detail command, but we want something simple for announcements.
+
+        :type showtime: bool
+        :type offline: bool
+        :rtype: discord.Embed
+        :param showtime: Should the title field include how long the stream has ran?
+        :param offline: Do we need to adjust the time to account for basecontext.offlinewait?
+        :return: a discord.Embed representing the current stream.
+        """
+        description = self.title
+        ismulti = "Multistream: No"
+        if self.ismulti:
+            ismulti = "Multistream: Yes"
+        if not showtime:
+            embtitle = self.name + " has come online!"
+        else:
+            embtitle = await self.streammsg(None, offset=offline)
+        noprev = discord.Embed(title=embtitle, url=self.streamurl.format(self.name), description=description)
+        noprev.add_field(name="Adult: " + ("Yes" if self.adult else "No"),
+                         value="Gaming: " + ("Yes" if self.gaming else "No"),
+                         inline=True)
+        # We don't have either multistream OR viewers info anymore. So don't use either.
+        # noprev.add_field(name=ismulti, value="Viewers: " + str(self.viewers), inline=True)
+        noprev.set_thumbnail(url=self.avatar)
+        return noprev
 
 class PiczelContext(basecontext.APIContext):
     defaultname = "piczel"  # This is used to name this context and is the command to call it. Must be unique.
