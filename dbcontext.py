@@ -313,9 +313,7 @@ class DbClient(discord.Client):
         if apitoken.devserver > 0:  # If we have a devserver set, lets use it.
             self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver))
             await self.tree.sync(guild=discord.Object(id=apitoken.devserver))
-            # self.tree.copy_global_to(guild=discord.Object(id=apitoken.devserver2))
-            # await self.tree.sync(guild=discord.Object(id=apitoken.devserver2))
-        # await self.tree.sync()
+        # await self.tree.sync()  # This should only be ran if slash commands have been added/removed/changed.
         self.loop.create_task(savetask())
         for modname in taskmods:
             # print("Starting task for:",modname.name)
@@ -343,6 +341,13 @@ async def command_error(interaction: discord.Interaction, error: discord.app_com
     if isinstance(error, discord.app_commands.CheckFailure):  # User did not have perms to run this command
         await interaction.response.send_message("You do not have the required permissions in the server to use"
                                                 " commands." + "\nFor help, please go to " + helpurl,
+                                                ephemeral=True,
+                                                delete_after=30)
+        return
+    if isinstance(error, discord.app_commands.errors.CommandNotFound):
+        await interaction.response.send_message("That command was not found. Please wait an hour for the command tree "
+                                                "to sync and try again. If the error persists, please contact the bot "
+                                                "maintainer.",
                                                 ephemeral=True,
                                                 delete_after=30)
         return
@@ -1041,6 +1046,19 @@ async def managehandler(command, message):
             mydata['notifyrole'][message.guild.id] = roleid
             await message.reply("Notification role set. Announcements will now mention this role.",
                                 mention_author=False)
+            # Unset the old notify stuff, so it can be turned on later if needed.
+            if message.guild.id in mydata['notifyserver']:  # Is the managed notify on?
+                try:
+                    foundmsg = await findmsg(message.guild, mydata['notifyserver'][message.guild.id], message.channel)
+                    await foundmsg.unpin()
+                    mydata["notifymsg"].pop(mydata['notifyserver'].pop(message.guild.id))
+                except discord.Forbidden:
+                    pass  # If we don't have permission to unpin, ignore it.
+                except KeyError:
+                    pass
+                except Exception as e:
+                    print("notifyoff", repr(e))  # For debugging log any other error
+
         else:
             msg = "Unable to find the given role. Either correct the name or provide a mention to the role (@RoleName)"
             await message.reply(msg, mention_author=False)
@@ -1068,8 +1086,9 @@ async def managehandler(command, message):
                                 "notify role below the " + message.guild.me.top_role.name + " role.",
                                 mention_author=False)
             return
-        # Step 2 - Check if we already are on
-        if message.guild.id in mydata['notifyserver']:  # Is notify on?
+        # Step 2 - Check if we already are on, and notifyrole is off
+        if (message.guild.id in mydata['notifyserver'] and
+                not mydata['notifyrole'][message.guild.id]) :  # Is notify on?
             msg = "Notifications have already been enabled on this server."
             savedmsgid = mydata['notifyserver'][message.guild.id]
             foundmsg = await findmsg(message.guild, savedmsgid, message.channel)
@@ -1432,6 +1451,11 @@ class ManageCommands:
                 # Save the role id in our data area under the guild id
                 mydata['notifyrole'][interaction.guild_id] = newrole.id
                 msg = "Notification role set to " + newrole.name + ". Announcements will now mention this role."
+                # This will remove notifyrole if it has been set, no need to check. Only ONE of them can be active.
+                try:
+                    del mydata['notifyrole'][interaction.guild.id]
+                except KeyError:
+                    pass
                 await interaction.response.send_message(msg,
                                                         ephemeral=True,
                                                         delete_after=self.msgdelay,
@@ -1468,8 +1492,8 @@ class ManageCommands:
                                              ephemeral=True,
                                              delete_after=self.msgdelay)
             return
-        # Step 2 - Check if we already are on
-        if interaction.guild_id in mydata['notifyserver']:  # Is notify on?
+        # Step 2 - Check if we already are on, and notify role is off.
+        if interaction.guild_id in mydata['notifyserver'] and not mydata['notifyrole'][interaction.guild.id]:
             msg = "Notifications have already been enabled on this server."
             savedmsgid = mydata['notifyserver'][interaction.guild_id]
             foundmsg = await findmsg(interaction.guild, savedmsgid, interaction.channel)
@@ -1759,15 +1783,6 @@ class DebugCommands:
                                         "callback": self.quit},
                                "restart": {"description": "Restarts the bot.",
                                            "callback": self.restart}}
-
-    # elif command[0] in ('quit', 'restart'):
-    #     global calledstop
-    #     if command[0] == 'quit':
-    #         calledstop = True
-    #     else:
-    #         calledstop = 'restart'  # Still counts as True for testing
-    #     await message.channel.send("Client exiting. Goodbye.")
-    #     await client.close()
 
     async def quit(self, interaction: discord.Interaction):
         global calledstop
